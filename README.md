@@ -7,5 +7,9 @@ This package provides some simple tools for streaming rigid body and marker data
 - Identifying LEDs pulses for synchronization (extractMotiveSyncPulses.m)
 
 ### Requirements/dependencies
-- Matlab r2017a or later
-- [Matlab logging framework](https://github.com/brykko/matlab-logging)
+- MATLAB r2017a or later
+- [MATLAB logging framework](https://github.com/brykko/matlab-logging)
+
+### Setup
+- Clone this repository and place it on your MATLAB path
+- Install the MATLAB logging framework
