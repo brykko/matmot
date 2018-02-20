@@ -27,6 +27,7 @@ classdef Streamer < matlab.unittest.TestCase
     methods (TestMethodTeardown)
         function deleteTempFiles(self)
             if ~isempty(self.streamer) && isvalid(self.streamer)
+                self.streamer.finish();
                 self.streamer.deleteFiles();
             end
         end
@@ -57,6 +58,8 @@ classdef Streamer < matlab.unittest.TestCase
         end
         
         function FrameCorrectNBytes(self)
+            % Check that the number of encoded bytes from a frame match the 
+            % expected number
             streamer = self.createStreamer();
             streamer.start();
             pause(0.1);

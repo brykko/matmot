@@ -68,7 +68,7 @@ classdef Streamer < handle
         nFramesInBuffer
         firstFrame
         firstFrameTimestamp
-        frameIdx
+        frameIdx = int32(0);
         lastTrackedFrameIdx
         
         % Position variables: each contains the value from the most recent
@@ -94,7 +94,7 @@ classdef Streamer < handle
         posTracked = uint8(0);
         firstFrameIdx
         frameTimestamp
-        frameLatency = 0
+        frameLatency = single(0)
     end
 
     properties (SetAccess = protected, Dependent)
@@ -105,7 +105,7 @@ classdef Streamer < handle
     
     properties (Constant)
        HEADER_LENGTH = 2^14
-       VERSION = '0.0.2'
+       VERSION = '0.0.3'
     end
     
     properties (SetAccess = protected, Hidden, Transient)
@@ -245,10 +245,6 @@ classdef Streamer < handle
             self.logger.i('Saved Streamer obj in file %s', filePath);
             
             self.streaming = false;
-            fileHandler = self.logger.getHandlers('logging.FileHandler');
-            fileHandler{1}.flush();
-            fileHandler{1}.close();
-            
         end
         
         function paths = getFiles(self)
@@ -262,6 +258,11 @@ classdef Streamer < handle
         
         function deleteFiles(self)
            % DELETEFILES remove all files associated with Streamer instance
+           
+           if self.streaming
+               error('Please finish streaming before deleting files')
+           end
+           
            self.closeOutputFile();
            self.closeLogFile();
            filePaths = self.getFiles();
@@ -273,7 +274,7 @@ classdef Streamer < handle
                if exist(pth, 'file')
                    delete(pth)
                else
-                   warning('Could not delete %s file "%s": file not found.')
+                   warning('Could not delete %s file "%s": file not found.', fd, pth)
                end
            end
         end
@@ -565,12 +566,12 @@ classdef Streamer < handle
             if self.simulate
                 newFrameIdx = int32(self.nFramesAcquired+1);
                 newFrameTime = (self.nFramesAcquired+1) / self.frameRate;
-                newFrameLatency = single(rand() * 0.3);
+                %newFrameLatency = single(rand() * 0.3);
             else
                 frame = self.NNClient.GetLastFrameOfData();
                 newFrameIdx = frame.iFrame;
                 newFrameTime = frame.fTimestamp;
-                newFrameLatency = frame.fLatency;
+                %newFrameLatency = frame.fLatency;
             end
             
             newFrame = true;
@@ -694,7 +695,7 @@ classdef Streamer < handle
                 self.nFramesAcquired = self.nFramesAcquired+1;
                 self.frameIdx = newFrameIdx;
                 self.frameTimestamp = newFrameTime;
-                self.frameLatency = newFrameLatency;
+                %self.frameLatency = newFrameLatency;
                 if self.firstFrame, self.firstFrame = false; end
                 
                 self.logger.v('Frame #%u, Pos (m): [%.3f, %.3f, %.3f], Rot (rad): [%.3f %.3f %.3f %.3f]', ...
