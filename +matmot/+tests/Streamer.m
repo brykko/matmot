@@ -1,5 +1,12 @@
 classdef Streamer < matlab.unittest.TestCase
-    %STREAMER tests, using simulated data acquisition
+    %STREAMER tests, using real or simulated data acquisition
+    
+    properties (Constant)
+        % Enable this parameter to use simulated (randomly generated) data.
+        % If disabled, the Streamer will attempt to connect to the NatNet
+        % server at localhost.
+        USE_SIMULATION = false;
+    end
     
     properties
         streamer
@@ -10,7 +17,7 @@ classdef Streamer < matlab.unittest.TestCase
             pth = fileparts(mfilename('fullpath'));
             tempFilePath = fullfile(pth, 'streamer_test');
             streamer = matmot.Streamer( ...
-                'simulate', true, ...
+                'simulate', self.USE_SIMULATION, ...
                 'fileName', tempFilePath, ...
                 varargin{:});
             self.streamer = streamer;

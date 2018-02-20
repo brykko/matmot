@@ -350,7 +350,7 @@ classdef Streamer < handle
                 end
                 client = NatNetML.NatNetClientML(0); % Input = iConnectionType: 0 = Multicast, 1 = Unicast
                 version = client.NatNetVersion();
-                self.logger.d('Created new NatNet Client, Version : %d.%d.%d.%d', version(1), version(2), version(3), version(4) );
+                self.logger.i('Created new NatNet Client, Version : %d.%d.%d.%d', version(1), version(2), version(3), version(4) );
                 self.NNClient = client;
             else
                 % Client already exists: uninitialize it before
