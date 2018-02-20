@@ -40,7 +40,6 @@ classdef MotiveStreamer < handle
     end
     
     properties
-        dllPath             (1,:) char = ''
         hostIP              (1,:) char = '127.0.0.1'
         
         % Ouput file props
@@ -160,11 +159,6 @@ classdef MotiveStreamer < handle
             % parameter/values pairs. See main docstring for available
             % parameters.
             %
-            
-            % Find DLL path
-            basepath = fileparts(mfilename('fullpath'));
-            dllPath = fullfile(basepath, '+external', 'NatNetML_x64.dll');
-            self.dllPath = dllPath;
             
             % Parse optional param/value args
             self.parseInputs(varargin{:});
@@ -320,10 +314,13 @@ classdef MotiveStreamer < handle
             
             if isempty(self.NNClient)
                 % No client currently exists: create a new one
+                % Find DLL path
+                basepath = fileparts(mfilename('fullpath'));
+                dllPath = fullfile(basepath, '+external', 'NatNetML.dll');
                 try
-                    [~] = NET.addAssembly(self.dllPath);
+                    [~] = NET.addAssembly(dllPath);
                 catch err
-                    msg = sprintf('Bad DLL path %s (message : "%s")', self.dllPath, err.message);
+                    msg = sprintf('Bad DLL path %s (message : "%s")', dllPath, err.message);
                     self.logger.f('%s', msg);
                     error(msg);
                 end
