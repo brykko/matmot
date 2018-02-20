@@ -19,7 +19,9 @@ classdef Streamer < matlab.unittest.TestCase
     
     methods (TestMethodTeardown)
         function deleteTempFiles(self)
-            self.streamer.deleteFiles();
+            if ~isempty(self.streamer) && isvalid(self.streamer)
+                self.streamer.deleteFiles();
+            end
         end
     end
     
@@ -45,6 +47,10 @@ classdef Streamer < matlab.unittest.TestCase
                 msg = sprintf('Failed to find %s file "%s"', fd, pth);
                 self.verifyTrue(fileExists, msg);
             end
+        end
+        
+        function FrameCorrectNBytes(self)
+            
         end
         
         function DataWritten(self)
@@ -81,7 +87,7 @@ classdef Streamer < matlab.unittest.TestCase
             % Check that acquired data is faithfully loaded
             streamer = self.createStreamer();
             
-            encodings = matmot.fieldEncodings();
+            encodings = matmot.Consts.encodings();
             for f = 1:numel(encodings)
                 data.(encodings(f).field) = [];
             end

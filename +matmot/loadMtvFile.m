@@ -36,6 +36,7 @@ function [data] = loadMtvFile(fileName)
 %   for mx, my, mz.
 
 import matmot.Streamer
+import matmot.Consts
 
 % Read all data from file
 [pth, fn, ext] = fileparts(fileName);
@@ -57,39 +58,44 @@ assert(~isempty(idx), ...
 
 % Calculate number of bytes per frame
 nMarkers = str2num(tok{idx}{1}{1});
-nBytesBasic = Streamer.N_BYTES_BASIC;
-nBytesMarker = Streamer.N_BYTES_MARKER;
-nBytesFrame = nBytesBasic + nMarkers*nBytesMarker;
-
+nBytesBasic = Consts.bytesPerFrame(0);
+nBytesFrame = Consts.bytesPerFrame(nMarkers);
 allBytes = fread(fid, [nBytesFrame, inf], '*uint8');
 fclose(fid);
 
 nFrames = size(allBytes, 2);
-encodings = matmot.fieldEncodings();
+encodings = Consts.encodings();
 
 % Cycle through fields and interpret the relevant bytes for field
 % appropriately
 for f = 1:numel(encodings)
-    field = encodings(f).field;
-    inds = encodings(f).byte_inds;
-    encoding = encodings(f).encoding;
+    encoding = encodings(f);
+    field = encoding.field;
+    inds = encoding.byte_inds + (0 : (encoding.n_bytes-1));
+    encodingConv = Consts.convertEncoding(encodings(f).encoding);
     bytes = allBytes(inds, :);
-    tmp = typecast(bytes(:), encoding);
+    tmp = typecast(bytes(:), encodingConv);
     data.(field) = reshape(tmp, [], nFrames)';
 end
 
 % Read the markers
-markerFields = {'mx', 'my', 'mz', 'msz', 'mres'};
-nBytesMarkerField = 4; % single float
+markerEncodings = Consts.markerEncodings();
+markerFields = Consts.MARKER_FIELDS;
+%nBytesMarkerField = Consts.markerFieldNBytes;
+indField = nBytesBasic + 1;
 for f = 1:numel(markerFields)
+    encoding = markerEncodings(f);
+    encodingConv = Consts.convertEncoding(encoding.encoding);
+    nBytes = encoding.n_bytes;
     fd = markerFields{f};
-    indField = nBytesBasic + (f-1)*nBytesMarkerField*nMarkers;
+    %indField = nBytesBasic + (f-1)*nBytesMarkerField*nMarkers;
     for m = 1:nMarkers
-        inds = indField + (m-1)*nBytesMarkerField + (1:4);
+        inds = indField + (m-1)*nBytes + (0 : (nBytes-1));
         bytes = allBytes(inds, :);
-        tmp = typecast(bytes(:), 'single');
+        tmp = typecast(bytes(:), encodingConv);
         data.(fd)(:, m) = reshape(tmp, [], nFrames)';
     end
+    indField = indField + encoding.n_bytes*nMarkers;
 end
 
 fprintf('Done.\n');

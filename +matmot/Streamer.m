@@ -121,15 +121,6 @@ classdef Streamer < handle
         logger        
     end
     
-    properties (Constant, Hidden)
-        % Currently this information is only used for reading the .mtv
-        % files written by this script
-        %
-        % TODO: use these specifications during the writing process
-        N_BYTES_BASIC = 49
-        N_BYTES_MARKER = 20        
-    end
-    
     events
         % EVENTS
         %
@@ -510,7 +501,7 @@ classdef Streamer < handle
         end
         
         function n = nBytesPerFrame(self)
-            n = self.N_BYTES_BASIC + self.N_BYTES_MARKER*self.nMarkers;
+            n = matmot.Consts.bytesPerFrame(self.nMarkers);
         end
         
         function parseInputs(self, varargin)

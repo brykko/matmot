@@ -1,3 +1,0 @@
-05:36:49.472  [I]  matmot.MotiveStreamer         New MotiveStreamer session, date 20/02/2018, user "richarga", PC "NTNU05700"
-05:36:49.472  [I]  matmot.MotiveStreamer         Initializing NatNet client...
-05:38:05.483  [D]  matmot.MotiveStreamer         Calling class destructor
