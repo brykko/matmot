@@ -571,7 +571,7 @@ classdef Streamer < handle
             
             % Get new frame of data
             if self.simulate
-                newFrameIdx = self.nFramesAcquired+1;
+                newFrameIdx = int32(self.nFramesAcquired+1);
                 newFrameTime = (self.nFramesAcquired+1) / self.frameRate;
                 %newFrameLatency = rand() * 0.3;
             else
@@ -621,20 +621,20 @@ classdef Streamer < handle
                 
                 if self.simulate
                     % Position and angles are random walks
-                    self.x = self.x + randn();
-                    self.y = self.y + randn();
-                    self.z = self.z + randn();
-                    self.qx = mod(self.qx + randn, 2*pi);
-                    self.qy = mod(self.qy + randn, 2*pi);
-                    self.qz = mod(self.qz + randn, 2*pi);
-                    self.qw = mod(self.qw + randn, 2*pi);
-                    self.posError = randn();
+                    self.x = self.x + randn('single');
+                    self.y = self.y + randn('single');
+                    self.z = self.z + randn('single');
+                    self.qx = mod(self.qx + randn('single'), 2*pi);
+                    self.qy = mod(self.qy + randn('single'), 2*pi);
+                    self.qz = mod(self.qz + randn('single'), 2*pi);
+                    self.qw = mod(self.qw + randn('single'), 2*pi);
+                    self.posError = randn('single');
                     self.posTracked = uint8(rand() > 0.02);
-                    self.mx = self.mx + rand(1, self.nMarkers);
-                    self.my = self.my + rand(1, self.nMarkers);
-                    self.mz = self.mz + rand(1, self.nMarkers);
-                    self.msz = rand(1, self.nMarkers);
-                    self.mres = rand(1, self.nMarkers) * 10e-4;
+                    self.mx = self.mx + rand(1, self.nMarkers, 'single');
+                    self.my = self.my + rand(1, self.nMarkers, 'single');
+                    self.mz = self.mz + rand(1, self.nMarkers, 'single');
+                    self.msz = rand(1, self.nMarkers, 'single');
+                    self.mres = rand(1, self.nMarkers, 'single') * 10e-4;
                 else
                     rb = frame.RigidBodies(1);
                     % If no rigid body exists in the current frame, rb may
@@ -710,7 +710,7 @@ classdef Streamer < handle
                 
                 if self.writeToFile
                     self.writeBuffer = [ ...
-                        self.writeBuffer, self.currentFrameToBytes];
+                        self.writeBuffer, self.currentFrameToBytes()];
                     
                     self.nFramesInBuffer = self.nFramesInBuffer + 1;
                     

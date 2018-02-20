@@ -1,11 +1,11 @@
 function [data] = loadMtvFile(fileName)
-%LOADMTVFILE read contents of binary .mtv file from MotiveStreamer
+%LOADMTVFILE read contents of binary .mtv file from Streamer
 %
 % DATA = LOADMTVFILE(FILENAME) reads the contents of the .DAT file
 % specified by FILENAME, return structure DATA. Fields of DATA are as
 % follows:
 %
-%   frameIdx (int32) - number of Motive frame. Frames are counted from when 
+%   frameIdx (int32) - number of Motive frame. Frames are counted from when
 %   Motive was opened.
 %
 %   frameTimestamp (double) - time of Motive frame, relative to when Motive
@@ -26,34 +26,16 @@ function [data] = loadMtvFile(fileName)
 %   include markers included in identified rigid bodies. Each field
 %   contains an nframes-by-nmarkers matrix, where nmarkers is the maximum
 %   number of markers recorded, as set by parameter 'nMarkers' in
-%   MotiveStreamer, represented by field "n_markers" in the .mtv file
+%   Streamer, represented by field "n_markers" in the .mtv file
 %   header.
 %
 %   msz (single) - size of labelled markers. Format is the same as for mx,
 %   my, mz.
 %
-%   mres (single) - residuals of labelled markers. Format is the same as 
+%   mres (single) - residuals of labelled markers. Format is the same as
 %   for mx, my, mz.
 
-import matmot.MotiveStreamer
-
-OUTPUT_BYTE_INDS = struct( ...
-    'frameIdx',         1:4, ...
-    'frameTimestamp',   5:12, ...
-    'frameLatency',     13:16, ...
-    'pos',              17:28, ...
-    'rot',              29:44, ...
-    'posError',         45:48, ...
-    'posTracked',       49);
-
-OUTPUT_ENCODINGS = struct( ...
-    'frameIdx',         'int32', ...
-    'frameTimestamp',   'double', ...
-    'frameLatency',     'single', ...
-    'pos',              'single', ...
-    'rot',              'single', ...
-    'posError',         'single', ...
-    'posTracked',       'uint8');
+import matmot.Streamer
 
 % Read all data from file
 [pth, fn, ext] = fileparts(fileName);
@@ -65,35 +47,35 @@ if fid == -1
     error('Could not open file %s: message "%s"', fpth, msg);
 end
 
-header = fread(fid, [1, MotiveStreamer.HEADER_LENGTH], '*char');
+header = fread(fid, [1, Streamer.HEADER_LENGTH], '*char');
 lines = strsplit(header, '\r\n');
 [mat, tok] = regexp(lines, 'n_markers=(\w+).*?', 'match', 'tokens');
 idx = find(~cellfun(@isempty, mat));
 assert(~isempty(idx), ...
-    'importMotiveDat:nMarkersNotFound', ...
+    'importMtv:nMarkersNotFound', ...
     'Error parsing file header: could not find string "n_markers"')
 
 % Calculate number of bytes per frame
 nMarkers = str2num(tok{idx}{1}{1});
-nBytesBasic = MotiveStreamer.N_BYTES_BASIC;
-nBytesMarker = MotiveStreamer.N_BYTES_MARKER;
+nBytesBasic = Streamer.N_BYTES_BASIC;
+nBytesMarker = Streamer.N_BYTES_MARKER;
 nBytesFrame = nBytesBasic + nMarkers*nBytesMarker;
 
 allBytes = fread(fid, [nBytesFrame, inf], '*uint8');
 fclose(fid);
 
 nFrames = size(allBytes, 2);
-fields = fieldnames(OUTPUT_ENCODINGS);
+encodings = matmot.fieldEncodings();
 
 % Cycle through fields and interpret the relevant bytes for field
 % appropriately
-for f = 1:numel(fields)
-    fd = fields{f};
-    inds = OUTPUT_BYTE_INDS.(fd);
-    encoding = OUTPUT_ENCODINGS.(fd);
+for f = 1:numel(encodings)
+    field = encodings(f).field;
+    inds = encodings(f).byte_inds;
+    encoding = encodings(f).encoding;
     bytes = allBytes(inds, :);
     tmp = typecast(bytes(:), encoding);
-    data.(fd) = reshape(tmp, [], nFrames)';
+    data.(field) = reshape(tmp, [], nFrames)';
 end
 
 % Read the markers

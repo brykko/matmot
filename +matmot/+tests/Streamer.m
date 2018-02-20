@@ -6,13 +6,14 @@ classdef Streamer < matlab.unittest.TestCase
     end
     
     methods
-        function createStreamer(self, varargin)
+        function streamer = createStreamer(self, varargin)
             pth = fileparts(mfilename('fullpath'));
             tempFilePath = fullfile(pth, 'streamer_test');
-            self.streamer = matmot.Streamer( ...
+            streamer = matmot.Streamer( ...
                 'simulate', true, ...
                 'fileName', tempFilePath, ...
                 varargin{:});
+            self.streamer = streamer;
         end
     end
     
@@ -27,11 +28,11 @@ classdef Streamer < matlab.unittest.TestCase
         function OutputFilesExist(self)
             % Check the three output files exist with the names they're
             % supposed to have
-            self.createStreamer();
-            self.streamer.start();
-            self.streamer.finish();
+            streamer = self.createStreamer();
+            streamer.start();
+            streamer.finish();
             
-            filepaths = self.streamer.getFiles();
+            filepaths = streamer.getFiles();
             fields = fieldnames(filepaths);
             self.assertTrue( ...
                 isstruct(filepaths) && numel(fields)==3, ...
@@ -49,14 +50,14 @@ classdef Streamer < matlab.unittest.TestCase
         function DataWritten(self)
             % Check that the acquired data is faithfully written to file
             
-            self.createStreamer()
-            streamer = self.streamer;
+            streamer = self.createStreamer();
             addlistener(streamer, 'postGetFrame', @(src, event) gatherData)
             
             % Callback appends frame data to array every time a new frame
             % is captured
             data = zeros(0, 'uint8');
             function gatherData()
+                % Append bytes as row vector
                 data = [data streamer.currentFrameToBytes()];
             end
             
@@ -76,7 +77,42 @@ classdef Streamer < matlab.unittest.TestCase
             self.verifyTrue(isequal(data',fileData), 'File contents did not match acquired bytes');
         end
         
+        function DataRead(self)
+            % Check that acquired data is faithfully loaded
+            streamer = self.createStreamer();
+            
+            encodings = matmot.fieldEncodings();
+            for f = 1:numel(encodings)
+                data.(encodings(f).field) = [];
+            end
+            
+            function gatherData()
+                % Append current values of data fields as rows
+                for f = 1:numel(encodings)
+                    field = encodings(f).field;
+                    data.(field) = [data.(field); streamer.(field)];
+                end
+            end
+            
+            addlistener(streamer, 'postGetFrame', @(src, event) gatherData)
+            self.streamer.start();
+            pause(1);
+            self.streamer.finish();
+            filepath = self.streamer.getFiles().data;
+            dataLoaded = matmot.loadMtvFile(filepath);
+            
+            for f = 1:numel(encodings)
+                field = encodings(f).field;
+                valOriginal = data.(field);
+                valLoaded = dataLoaded.(field);
+                msg = sprintf('Data field "%s" was empty', field);
+                self.assertTrue(~isempty(valOriginal), msg);
+                msg = sprintf('Loaded values of field "%s" values different from acquisition values', field);
+                self.verifyTrue(isequal(valOriginal, valLoaded), msg)
+            end
+            
+
+        end
     end
-    
 end
 
