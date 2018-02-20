@@ -57,7 +57,15 @@ classdef Streamer < matlab.unittest.TestCase
         end
         
         function FrameCorrectNBytes(self)
-            
+            streamer = self.createStreamer();
+            streamer.start();
+            pause(0.1);
+            self.assertFalse(isempty(streamer.firstFrameIdx), ...
+                'Streamer has no frame data yet')
+            bytes = streamer.currentFrameToBytes();
+            streamer.finish();
+            self.verifyTrue(numel(bytes)==streamer.nBytesPerFrame, ...
+                'Mismatch between expected and actual number of frame bytes');
         end
         
         function DataWritten(self)
@@ -86,7 +94,7 @@ classdef Streamer < matlab.unittest.TestCase
             fileData = fread(fid, '*uint8');
             fclose(fid);
             
-            self.assertTrue(~isempty(fileData), 'Data file was empty');
+            self.assertFalse(isempty(fileData), 'Data file was empty');
             self.verifyTrue(isequal(data',fileData), 'File contents did not match acquired bytes');
         end
         
@@ -119,7 +127,7 @@ classdef Streamer < matlab.unittest.TestCase
                 valOriginal = data.(field);
                 valLoaded = dataLoaded.(field);
                 msg = sprintf('Data field "%s" was empty', field);
-                self.assertTrue(~isempty(valOriginal), msg);
+                self.assertFalse(isempty(valOriginal), msg);
                 msg = sprintf('Loaded values of field "%s" values different from acquisition values', field);
                 self.verifyTrue(isequal(valOriginal, valLoaded), msg)
             end
