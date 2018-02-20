@@ -1,14 +1,14 @@
-classdef MotiveStreamer < handle
-    %MOTIVESTREAMER stream OptiTrack Motive data to binary files.
+classdef Streamer < handle
+    %STREAMER stream OptiTrack Motive data to binary files.
     %
-    % MotiveStreamer performs streaming from a NatNet client and
-    % saves the received 
+    % Streamer objects stream data from a NatNet client, saving the 
+    % received data frames to a binary file. 
     %
-    % S = MOTIVESTREAMER() creates a new MotiveStreamer object S.
+    % S = STREAMER() creates a new Streamer object S.
     %
-    % S = MOTIVESTREAMER(PRM, VAL, ... ) creates a new MotiveStreamer
-    % object S and initializes it with the specified parameter values.
-    % The available parameters are as follows:
+    % S = STREAMER(PRM, VAL, ... ) creates a new Streamer object S and 
+    % initializes it with the specified parameter values. The available 
+    % parameters are as follows:
     %
     %   'hostIp' (default '127.0.0.1') host IP address
     %
@@ -147,15 +147,15 @@ classdef MotiveStreamer < handle
     
     methods
         
-        function self = MotiveStreamer(varargin)
-            % MOTIVESTREAMER constructor
+        function self = Streamer(varargin)
+            % STREAMER constructor
             %
-            % S = MOTIVESTREAMER(DLLPATH) creates a new MotiveStreamer 
+            % S = STREAMER(DLLPATH) creates a new Streamer 
             % object S using the NatNet DLL at the path specified by 
             % DLLPATH.
             %
-            % S = MOTIVESTREAMER(DLLPATH, PRM, VAL, ... ) creates a new 
-            % MotiveStreamer object S and initializes it with specified 
+            % S = STREAMER(DLLPATH, PRM, VAL, ... ) creates a new 
+            % Streamer object S and initializes it with specified 
             % parameter/values pairs. See main docstring for available
             % parameters.
             %
@@ -250,7 +250,7 @@ classdef MotiveStreamer < handle
             filePath = self.getFiles().streamer;
             streamerObj = self;
             save(filePath, 'streamerObj');
-            self.logger.i('Saved MotiveStreamer obj in file %s', filePath);
+            self.logger.i('Saved Streamer obj in file %s', filePath);
             
             self.streaming = false;
             fileHandler = self.logger.getHandlers('logging.FileHandler');
@@ -329,7 +329,7 @@ classdef MotiveStreamer < handle
             logger.addHandler(handler);
             
             lg = @(varargin) logger.i(varargin{:});
-            lg('New MotiveStreamer session, date %s, user "%s", PC "%s"', ...
+            lg('New Streamer session, date %s, user "%s", PC "%s"', ...
                 datestr(now, 'dd/mm/yyyy'), getenv('username'), getenv('computername'));
             
             self.logger = logger;
@@ -459,7 +459,7 @@ classdef MotiveStreamer < handle
             end
             
             % Write parameter settings to header
-            fprintf(self.fid, 'MotiveStreamer version %s\r\n', self.VERSION);
+            fprintf(self.fid, 'MatMot Streamer version %s\r\n', self.VERSION);
             tmp = self.NNClient.NatNetVersion();
             printprm('natnet_version', tmp(1), '%u')
             printprm('matlab_version', version())

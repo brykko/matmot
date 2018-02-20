@@ -1,5 +1,5 @@
-classdef MotiveStreamer < matlab.unittest.TestCase
-    %MOTIVESTREAMER tests, using simulated data acquisition
+classdef Streamer < matlab.unittest.TestCase
+    %STREAMER tests, using simulated data acquisition
     
     properties
         streamer
@@ -8,8 +8,8 @@ classdef MotiveStreamer < matlab.unittest.TestCase
     methods
         function createStreamer(self, varargin)
             pth = fileparts(mfilename('fullpath'));
-            tempFilePath = fullfile(pth, 'motive_test');
-            self.streamer = matmot.MotiveStreamer( ...
+            tempFilePath = fullfile(pth, 'streamer_test');
+            self.streamer = matmot.Streamer( ...
                 'simulate', true, ...
                 'fileName', tempFilePath, ...
                 varargin{:});
