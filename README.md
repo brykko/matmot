@@ -2,9 +2,9 @@
 This package provides some simple tools for streaming rigid body and marker data from Motive to disk, using OptiTrack's NatNet MATLAB client.
 
 ### Tasks handled
-- Streaming from Motive to disk (MotiveStreamer.m)
+- Streaming from Motive to disk (Streamer.m)
 - Loading previously streamed data into MATLAB (loadMtvFile.m)
-- Identifying LEDs pulses for synchronization (extractMotiveSyncPulses.m)
+- Identifying LEDs pulses for synchronization (extractSyncPulses.m)
 
 ### Requirements/dependencies
 - MATLAB r2017a or later
