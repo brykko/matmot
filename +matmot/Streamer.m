@@ -502,7 +502,7 @@ classdef Streamer < handle
         end
         
         function n = nBytesPerFrame(self)
-            n = matmot.Consts.bytesPerFrame(self.nMarkers);
+            n = matmot.FormatSpec.bytesPerFrame(self.nMarkers);
         end
         
         function parseInputs(self, varargin)

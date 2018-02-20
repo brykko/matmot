@@ -70,7 +70,7 @@ classdef Streamer < matlab.unittest.TestCase
         
         function FrameCorrectEncodings(self)
             % Check that all fields in a frame are of the expected encoding
-            import matmot.Consts
+            import matmot.FormatSpec
             streamer = self.createStreamer();
             
             streamer.start();
@@ -82,13 +82,13 @@ classdef Streamer < matlab.unittest.TestCase
                 'Streamer has no frame data yet')
             
             function checkAllFields()
-                import matmot.Consts;
-                fields = [Consts.fields(); Consts.markerFields()];
+                import matmot.FormatSpec;
+                fields = [FormatSpec.fields(); FormatSpec.markerFields()];
                 isMarkerField = true(size(fields));
-                isMarkerField(1:numel(Consts.fields())) = false;
+                isMarkerField(1:numel(FormatSpec.fields())) = false;
                 for f = 1:numel(fields)
                     name = fields(f).name;
-                    [encoding, nCols] = Consts.convertEncoding(fields(f).encoding);
+                    [encoding, nCols] = FormatSpec.convertEncoding(fields(f).encoding);
                     if isMarkerField(f)
                         % For marker fields, the number of columns equals
                         % the number of markers
@@ -149,7 +149,7 @@ classdef Streamer < matlab.unittest.TestCase
             % Check that acquired data is faithfully loaded
             streamer = self.createStreamer();
             
-            fields = matmot.Consts.fields();
+            fields = matmot.FormatSpec.fields();
             for f = 1:numel(fields)
                 data.(fields(f).name) = [];
             end

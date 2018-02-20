@@ -1,5 +1,5 @@
-classdef Consts < handle
-    %CONSTS file format-related constants and functions
+classdef FormatSpec < handle
+    %FormatSpec file format-related constants and functions
     
     properties (Constant)
         
@@ -42,30 +42,30 @@ classdef Consts < handle
         
         function S = fields()
             % Field encodings as a struct array
-            import matmot.Consts
-            [byteInds, nBytes] = Consts.getByteInds(Consts.ENCODINGS);
+            import matmot.FormatSpec
+            [byteInds, nBytes] = FormatSpec.getByteInds(FormatSpec.ENCODINGS);
             S = struct( ...
-                'name', Consts.FIELD_NAMES, ...
+                'name', FormatSpec.FIELD_NAMES, ...
                 'byte_inds', num2cell(byteInds'), ...
                 'n_bytes', num2cell(nBytes'), ...
-                'encoding', Consts.ENCODINGS);
+                'encoding', FormatSpec.ENCODINGS);
         end
         
         function S = markerFields()
             % Marker field encodings as a struct array
-            import matmot.Consts
-            [byteInds, nBytes] = Consts.getByteInds(Consts.MARKER_ENCODINGS);
+            import matmot.FormatSpec
+            [byteInds, nBytes] = FormatSpec.getByteInds(FormatSpec.MARKER_ENCODINGS);
             S = struct( ...
-                'name', Consts.MARKER_FIELD_NAMES, ...
+                'name', FormatSpec.MARKER_FIELD_NAMES, ...
                 'byte_inds', num2cell(byteInds'), ...
                 'n_bytes', num2cell(nBytes'), ...
-                'encoding', Consts.MARKER_ENCODINGS);
+                'encoding', FormatSpec.MARKER_ENCODINGS);
         end
         
         function nBytes = bytesPerMarker()
             % Number of bytes needed to encode all of a marker's fields
-            import matmot.Consts
-            fields = Consts.markerFields();
+            import matmot.FormatSpec
+            fields = FormatSpec.markerFields();
             nBytes = sum([fields.n_bytes]);
         end
         
@@ -82,18 +82,18 @@ classdef Consts < handle
         
         function nBytes = encodingNBytes(encoding)
             % Number of bytes corresponding to a composite encoding
-            [encoding, n] = matmot.Consts.convertEncoding(encoding);
+            [encoding, n] = matmot.FormatSpec.convertEncoding(encoding);
             x = zeros(1, n, encoding);
             nBytes = numel(typecast(x, 'uint8'));
         end
         
         function [inds, nBytes] = getByteInds(encodings)
             % Byte indices and numbers 
-            import matmot.Consts
+            import matmot.FormatSpec
             idx0 = 1;
             for n = 1:numel(encodings)
                 encoding = encodings{n};
-                nBytes(n) = Consts.encodingNBytes(encoding);
+                nBytes(n) = FormatSpec.encodingNBytes(encoding);
                 inds(n) = idx0;
                 idx0 = idx0 + nBytes(n);
             end
@@ -105,10 +105,10 @@ classdef Consts < handle
             % NBYTES = BYTESPERFRAME(NMARKERS) returns the number of bytes 
             % NBYTES needed to encode a frame containing the maximum 
             % marker count NMARKERS.
-            import matmot.Consts
-            fields = Consts.fields();
+            import matmot.FormatSpec
+            fields = FormatSpec.fields();
             nBytesBasic = sum([fields.n_bytes]);
-            nBytes = nBytesBasic + nMarkers*Consts.bytesPerMarker();
+            nBytes = nBytesBasic + nMarkers*FormatSpec.bytesPerMarker();
         end
         
     end

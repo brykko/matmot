@@ -36,7 +36,7 @@ function [data] = loadMtvFile(fileName)
 %   for mx, my, mz.
 
 import matmot.Streamer
-import matmot.Consts
+import matmot.FormatSpec
 
 % Read all data from file
 [pth, fn, ext] = fileparts(fileName);
@@ -58,32 +58,32 @@ assert(~isempty(idx), ...
 
 % Calculate number of bytes per frame
 nMarkers = str2num(tok{idx}{1}{1});
-nBytesBasic = Consts.bytesPerFrame(0);
-nBytesFrame = Consts.bytesPerFrame(nMarkers);
+nBytesBasic = FormatSpec.bytesPerFrame(0);
+nBytesFrame = FormatSpec.bytesPerFrame(nMarkers);
 allBytes = fread(fid, [nBytesFrame, inf], '*uint8');
 fclose(fid);
 
 nFrames = size(allBytes, 2);
-fields = Consts.fields();
+fields = FormatSpec.fields();
 
 % Cycle through fields and interpret the relevant bytes for field
 % appropriately
 for f = 1:numel(fields)
     field = fields(f);
     inds = field.byte_inds + (0 : (field.n_bytes-1));
-    encodingConv = Consts.convertEncoding(fields(f).encoding);
+    encodingConv = FormatSpec.convertEncoding(fields(f).encoding);
     bytes = allBytes(inds, :);
     tmp = typecast(bytes(:), encodingConv);
     data.(field.name) = reshape(tmp, [], nFrames)';
 end
 
 % Read the markers
-markerFields = Consts.markerFields();
-%nBytesMarkerField = Consts.markerFieldNBytes;
+markerFields = FormatSpec.markerFields();
+%nBytesMarkerField = FormatSpec.markerFieldNBytes;
 indField = nBytesBasic + 1;
 for f = 1:numel(markerFields)
     field = markerFields(f);
-    encodingConv = Consts.convertEncoding(field.encoding);
+    encodingConv = FormatSpec.convertEncoding(field.encoding);
     nBytes = field.n_bytes;
     %indField = nBytesBasic + (f-1)*nBytesMarkerField*nMarkers;
     for m = 1:nMarkers
