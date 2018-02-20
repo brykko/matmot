@@ -1,13 +1,19 @@
-function [inds, times, data] = extractMotiveSyncPulses(filepath, varargin)
-%EXTRACTMOTIVESYNCPULSES extracts IR-LED sync pulse times from Motive data
+function [inds, times, data] = extractSyncPulses(filepath, varargin)
+%EXTRACTSYNCPULSES extracts IR-LED sync pulse times from Motive data
 %
-%   [INDS, TIMES] = EXTRACTMOTIVESYNCPULSES(FILEPATH) processes the file
+%   This function can be used to detect the locations and pulse times of a
+%   set of IR-LEDs positioned in the recorded volume. All LEDs must be
+%   pulsed on and off in unison, since the detection algorithm uses the
+%   correlations of voxel occupancies to detect which voxels the LEDs are
+%   located in.
+%
+%   [INDS, TIMES] = EXTRACTSYNCPULSES(FILEPATH) processes the file
 %   containing streamed Motive data specified by FILEPATH. The returned
 %   variables INDS and TIMES are two-column matrices indicating the pulse 
 %   onset and offset frame indices and times, respectively.
 %
-%   [...] = EXTRACTMOTIVESYNCPULSES(FILEPATH, PRM, VAL, ...) specifies
-%   optional parameter/value pairs. Available parameters are as follows:
+%   [...] = EXTRACTSYNCPULSES(FILEPATH, PRM, VAL, ...) specifies optional 
+%   parameter/value pairs. Available parameters are as follows:
 %   
 %   'plot' (default FALSE): generate a summary figure.
 %
