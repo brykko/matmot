@@ -1,6 +1,0 @@
-05:42:21.617  [I]  matmot.MotiveStreamer         New MotiveStreamer session, date 20/02/2018, user "richarga", PC "NTNU05700"
-05:42:21.633  [I]  matmot.MotiveStreamer         Initializing NatNet client...
-05:42:34.795  [F]  matmot.MotiveStreamer         Bad DLL path N:\richarga\misc\optitrackNatNet\scripts\matmot\+matmot\+external\NatNetML.dll (message : "Message: Could not load file or assembly 'NatNetML_x64.dll' or one of its dependencies. The specified module could not be found.
-Source: mscorlib
-HelpLink: ")
-05:42:40.928  [D]  matmot.MotiveStreamer         Calling class destructor
