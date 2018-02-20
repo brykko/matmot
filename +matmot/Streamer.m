@@ -190,8 +190,9 @@ classdef Streamer < handle
                     end
                 end
             elseif strcmpi(self.streamingMode, 'callback')
-                self.logger.i('Starting streaming in "callback mode". Call finish() to stop.');
+                self.logger.i('Starting streaming in "callback" mode. Call finish() to stop.');
                 if self.simulate
+                    % Simulate frame ready events with a 120 Hz timer
                     tim = timer( ...
                         'Period', 1/120, ...
                         'TimerFcn', @(~,~) self.getFrame());
@@ -422,11 +423,11 @@ classdef Streamer < handle
             self.firstFrameTimestamp = 0;
             self.frameTimestamp = 0;
             
-            self.mx = zeros(1, self.nMarkers, 'single');
-            self.my = zeros(1, self.nMarkers, 'single');
-            self.mz = zeros(1, self.nMarkers, 'single');
-            self.msz = zeros(1, self.nMarkers, 'single');
-            self.mres = zeros(1, self.nMarkers, 'single');
+            self.mx = zeros(self.nMarkers, 1, 'single');
+            self.my = zeros(self.nMarkers, 1, 'single');
+            self.mz = zeros(self.nMarkers, 1, 'single');
+            self.msz = zeros(self.nMarkers, 1, 'single');
+            self.mres = zeros(self.nMarkers, 1, 'single');
             
         end
         
@@ -564,12 +565,12 @@ classdef Streamer < handle
             if self.simulate
                 newFrameIdx = int32(self.nFramesAcquired+1);
                 newFrameTime = (self.nFramesAcquired+1) / self.frameRate;
-                %newFrameLatency = rand() * 0.3;
+                newFrameLatency = single(rand() * 0.3);
             else
                 frame = self.NNClient.GetLastFrameOfData();
                 newFrameIdx = frame.iFrame;
                 newFrameTime = frame.fTimestamp;
-                %newFrameLatency = frame.fLatency;
+                newFrameLatency = frame.fLatency;
             end
             
             newFrame = true;
@@ -621,11 +622,11 @@ classdef Streamer < handle
                     self.qw = mod(self.qw + randn('single'), 2*pi);
                     self.posError = randn('single');
                     self.posTracked = uint8(rand() > 0.02);
-                    self.mx = self.mx + rand(1, self.nMarkers, 'single');
-                    self.my = self.my + rand(1, self.nMarkers, 'single');
-                    self.mz = self.mz + rand(1, self.nMarkers, 'single');
-                    self.msz = rand(1, self.nMarkers, 'single');
-                    self.mres = rand(1, self.nMarkers, 'single') * 10e-4;
+                    self.mx = self.mx + rand(self.nMarkers, 1, 'single');
+                    self.my = self.my + rand(self.nMarkers, 1, 'single');
+                    self.mz = self.mz + rand(self.nMarkers, 1, 'single');
+                    self.msz = rand(self.nMarkers, 1, 'single');
+                    self.mres = rand(self.nMarkers, 1, 'single') * 10e-4;
                 else
                     rb = frame.RigidBodies(1);
                     % If no rigid body exists in the current frame, rb may
@@ -693,7 +694,7 @@ classdef Streamer < handle
                 self.nFramesAcquired = self.nFramesAcquired+1;
                 self.frameIdx = newFrameIdx;
                 self.frameTimestamp = newFrameTime;
-                %self.frameLatency = newFrameLatency;
+                self.frameLatency = newFrameLatency;
                 if self.firstFrame, self.firstFrame = false; end
                 
                 self.logger.v('Frame #%u, Pos (m): [%.3f, %.3f, %.3f], Rot (rad): [%.3f %.3f %.3f %.3f]', ...
@@ -726,7 +727,7 @@ classdef Streamer < handle
                 typecast(self.frameTimestamp, 'uint8') ...                               % double (8 bytes)
                 typecast([self.frameLatency, self.pos, self.rot, self.posError], 'uint8') ... % single (8*4 bytes)
                 uint8(self.posTracked) ...                                      % logical (1 byte)
-                typecast([self.mx self.my self.mz self.msz self.mres], 'uint8')
+                typecast([self.mx; self.my; self.mz; self.msz; self.mres], 'uint8')' 
                 ];
         end
         

@@ -64,38 +64,35 @@ allBytes = fread(fid, [nBytesFrame, inf], '*uint8');
 fclose(fid);
 
 nFrames = size(allBytes, 2);
-encodings = Consts.encodings();
+fields = Consts.fields();
 
 % Cycle through fields and interpret the relevant bytes for field
 % appropriately
-for f = 1:numel(encodings)
-    encoding = encodings(f);
-    field = encoding.field;
-    inds = encoding.byte_inds + (0 : (encoding.n_bytes-1));
-    encodingConv = Consts.convertEncoding(encodings(f).encoding);
+for f = 1:numel(fields)
+    field = fields(f);
+    inds = field.byte_inds + (0 : (field.n_bytes-1));
+    encodingConv = Consts.convertEncoding(fields(f).encoding);
     bytes = allBytes(inds, :);
     tmp = typecast(bytes(:), encodingConv);
-    data.(field) = reshape(tmp, [], nFrames)';
+    data.(field.name) = reshape(tmp, [], nFrames)';
 end
 
 % Read the markers
-markerEncodings = Consts.markerEncodings();
-markerFields = Consts.MARKER_FIELDS;
+markerFields = Consts.markerFields();
 %nBytesMarkerField = Consts.markerFieldNBytes;
 indField = nBytesBasic + 1;
 for f = 1:numel(markerFields)
-    encoding = markerEncodings(f);
-    encodingConv = Consts.convertEncoding(encoding.encoding);
-    nBytes = encoding.n_bytes;
-    fd = markerFields{f};
+    field = markerFields(f);
+    encodingConv = Consts.convertEncoding(field.encoding);
+    nBytes = field.n_bytes;
     %indField = nBytesBasic + (f-1)*nBytesMarkerField*nMarkers;
     for m = 1:nMarkers
         inds = indField + (m-1)*nBytes + (0 : (nBytes-1));
         bytes = allBytes(inds, :);
         tmp = typecast(bytes(:), encodingConv);
-        data.(fd)(:, m) = reshape(tmp, [], nFrames)';
+        data.(field.name)(:, m) = reshape(tmp, [], nFrames)';
     end
-    indField = indField + encoding.n_bytes*nMarkers;
+    indField = indField + field.n_bytes*nMarkers;
 end
 
 fprintf('Done.\n');

@@ -3,7 +3,7 @@ classdef Consts < handle
     
     properties (Constant)
         
-        FIELDS = {
+        FIELD_NAMES = {
             'frameIdx'
             'frameTimestamp'
             'frameLatency'
@@ -21,7 +21,7 @@ classdef Consts < handle
             'single'
             'uint8'};
         
-        MARKER_FIELDS = {
+        MARKER_FIELD_NAMES = {
             'mx'
             'my'
             'mz'
@@ -40,23 +40,23 @@ classdef Consts < handle
     
     methods (Static)
         
-        function S = encodings()
+        function S = fields()
             % Field encodings as a struct array
             import matmot.Consts
             [byteInds, nBytes] = Consts.getByteInds(Consts.ENCODINGS);
             S = struct( ...
-                'field', Consts.FIELDS, ...
+                'name', Consts.FIELD_NAMES, ...
                 'byte_inds', num2cell(byteInds'), ...
                 'n_bytes', num2cell(nBytes'), ...
                 'encoding', Consts.ENCODINGS);
         end
         
-        function S = markerEncodings()
+        function S = markerFields()
             % Marker field encodings as a struct array
             import matmot.Consts
             [byteInds, nBytes] = Consts.getByteInds(Consts.MARKER_ENCODINGS);
             S = struct( ...
-                'field', Consts.MARKER_FIELDS, ...
+                'name', Consts.MARKER_FIELD_NAMES, ...
                 'byte_inds', num2cell(byteInds'), ...
                 'n_bytes', num2cell(nBytes'), ...
                 'encoding', Consts.MARKER_ENCODINGS);
@@ -65,8 +65,8 @@ classdef Consts < handle
         function nBytes = bytesPerMarker()
             % Number of bytes needed to encode all of a marker's fields
             import matmot.Consts
-            encodings = Consts.markerEncodings();
-            nBytes = sum([encodings.n_bytes]);
+            fields = Consts.markerFields();
+            nBytes = sum([fields.n_bytes]);
         end
         
         function [encoding, n] = convertEncoding(encoding)
@@ -106,8 +106,8 @@ classdef Consts < handle
             % NBYTES needed to encode a frame containing the maximum 
             % marker count NMARKERS.
             import matmot.Consts
-            encodings = Consts.encodings();
-            nBytesBasic = sum([encodings.n_bytes]);
+            fields = Consts.fields();
+            nBytesBasic = sum([fields.n_bytes]);
             nBytes = nBytesBasic + nMarkers*Consts.bytesPerMarker();
         end
         
