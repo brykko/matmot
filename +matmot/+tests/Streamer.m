@@ -119,7 +119,7 @@ classdef Streamer < matlab.unittest.TestCase
             % Check that the acquired data is faithfully written to file
             
             streamer = self.createStreamer();
-            addlistener(streamer, 'postGetFrame', @(src, event) gatherData)
+            addlistener(streamer, 'postGetFrame', @(src, event) gatherData);
             
             % Callback appends frame data to array every time a new frame
             % is captured
@@ -162,7 +162,7 @@ classdef Streamer < matlab.unittest.TestCase
                 end
             end
             
-            addlistener(streamer, 'postGetFrame', @(src, event) gatherData)
+            addlistener(streamer, 'postGetFrame', @(src, event) gatherData);
             self.streamer.start();
             pause(1);
             self.streamer.finish();
