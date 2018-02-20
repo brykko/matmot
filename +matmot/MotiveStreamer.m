@@ -30,7 +30,7 @@ classdef MotiveStreamer < handle
     % --------------------------------------------------------------------
     % STREAMING
     %
-    % S.STREAM() begins data acquisition, using the streaming mode
+    % S.START() begins data acquisition, using the streaming mode
     % specified by the value of the property "streamingMode".
     %
     % S.FINISH() finishes streaming and closes files.
@@ -108,7 +108,7 @@ classdef MotiveStreamer < handle
        VERSION = '0.0.2'
     end
     
-    properties (SetAccess = protected, Hidden)
+    properties (SetAccess = protected, Hidden, Transient)
         clientInitialized = false;
         frameReadyListener
         
@@ -116,9 +116,9 @@ classdef MotiveStreamer < handle
         fid
         dataDir
         writeBuffer = uint8.empty()
-        
-        logger
         writeBufferTmp
+        
+        logger        
     end
     
     properties (Constant, Hidden)
@@ -170,8 +170,8 @@ classdef MotiveStreamer < handle
             
         end
         
-        function stream(self)
-            % STREAM - begin streaming
+        function start(self)
+            % START - begin streaming
             %
             % S.STREAM() acquires data continuously. The streaming mode is
             % set according to the value of the property "streamingMode".
@@ -199,10 +199,18 @@ classdef MotiveStreamer < handle
                     end
                 end
             elseif strcmpi(self.streamingMode, 'callback')
-                % Attach a listener to execute whenever the NatNet client
-                % notifies the event "OnFrameReady2"
                 self.logger.i('Starting streaming in "callback mode". Call finish() to stop.');
-                self.frameReadyListener = addlistener(self.NNClient, 'OnFrameReady2', @(~,~) self.getFrame());
+                if self.simulate
+                    tim = timer( ...
+                        'Period', 1/120, ...
+                        'TimerFcn', @(~,~) self.getFrame());
+                    start(tim);
+                    self.frameReadyListener = tim;
+                else
+                    % Attach a listener to execute whenever the NatNet client
+                    % notifies the event "OnFrameReady2"
+                    self.frameReadyListener = addlistener(self.NNClient, 'OnFrameReady2', @(~,~) self.getFrame());
+                end
             end
             
             function cleanupCallback(self)
@@ -239,8 +247,7 @@ classdef MotiveStreamer < handle
             self.logger.i('Streaming finished. Total number of dropped frames: %u', self.nFramesDropped);
             
             % Save self to .mat file
-            [~, fn, ~] = fileparts(self.fileName);
-            filePath = fullfile(self.dataDir, [fn '_streamer.mat']);
+            filePath = self.getFiles().streamer;
             streamerObj = self;
             save(filePath, 'streamerObj');
             self.logger.i('Saved MotiveStreamer obj in file %s', filePath);
@@ -250,6 +257,33 @@ classdef MotiveStreamer < handle
             fileHandler{1}.flush();
             fileHandler{1}.close();
             
+        end
+        
+        function paths = getFiles(self)
+            % GETFILES return filepaths associated with Streamer instance
+            [~, baseName, ~] = fileparts(self.fileName);
+            paths = struct( ...
+                'data', fullfile(self.dataDir, self.fileName), ...
+                'log', fullfile(self.dataDir, [baseName '.log']), ...
+                'streamer', fullfile(self.dataDir, [baseName '_streamer.mat']));
+        end
+        
+        function deleteFiles(self)
+           % DELETEFILES remove all files associated with Streamer instance
+           self.closeOutputFile();
+           self.closeLogFile();
+           filePaths = self.getFiles();
+           fields = fieldnames(filePaths);
+           for f = 1:numel(fields)
+               fd = fields{f};
+               pth = filePaths.(fd);
+               fprintf('Deleting %s file "%s"\n', fd, pth);
+               if exist(pth, 'file')
+                   delete(pth)
+               else
+                   warning('Could not delete %s file "%s": file not found.')
+               end
+           end
         end
         
         function val = get.timeElapsed(self)
@@ -288,9 +322,8 @@ classdef MotiveStreamer < handle
             handler.level = Level.INFO;
             logger.addHandler(handler);
             
-            [~, fn] = fileparts(self.fileName);
-            logFilePath = fullfile(self.dataDir, [fn '_log.txt']);
-            handler = logging.FileHandler(logFilePath, false);
+            filePath = self.getFiles().log;
+            handler = logging.FileHandler(filePath, false);
             handler.level = Level.DEBUG;
             handler.logger.level = Level.DEBUG;
             logger.addHandler(handler);
@@ -375,7 +408,7 @@ classdef MotiveStreamer < handle
             self.logger.i('Initializing streaming');
             
             % Open output file
-            filePath = fullfile(self.dataDir, self.fileName);
+            filePath = self.getFiles().data;
             self.logger.v('Opening output data file %s', filePath);
             [self.fid, message] = fopen(filePath, 'w');
             if self.fid == -1
@@ -414,10 +447,7 @@ classdef MotiveStreamer < handle
             end
             self.closeClient();
             self.closeOutputFile();
-            handler = self.logger.getHandlers('FileHandler');
-            if ~isempty(handler)
-                handler{1}.flush();
-            end
+            self.closeLogFile();
         end
         
         function writeHeader(self)
@@ -456,6 +486,15 @@ classdef MotiveStreamer < handle
                 self.logger.i('Closing file "%s"', filePath);
                 fclose(self.fid);
                 self.fileOpen = false;
+            end
+        end
+        
+        function closeLogFile(self)
+            fileHandler = self.logger.getHandlers('logging.FileHandler');
+            if ~isempty(fileHandler)
+                fileHandler = fileHandler{1};
+                fileHandler.close();
+                self.logger.removeHandler(fileHandler);
             end
         end
         
@@ -591,11 +630,11 @@ classdef MotiveStreamer < handle
                     self.qw = mod(self.qw + randn, 2*pi);
                     self.posError = randn();
                     self.posTracked = uint8(rand() > 0.02);
-                    self.mx = self.mx + rand(self.nMarkers, 1);
-                    self.my = self.my + rand(self.nMarkers, 1);
-                    self.mz = self.mz + rand(self.nMarkers, 1);
-                    self.msz = rand(self.nMarkers, 1);
-                    self.mres = rand(self.nMarkers, 1) * 10e-4;
+                    self.mx = self.mx + rand(1, self.nMarkers);
+                    self.my = self.my + rand(1, self.nMarkers);
+                    self.mz = self.mz + rand(1, self.nMarkers);
+                    self.msz = rand(1, self.nMarkers);
+                    self.mres = rand(1, self.nMarkers) * 10e-4;
                 else
                     rb = frame.RigidBodies(1);
                     % If no rigid body exists in the current frame, rb may
@@ -670,13 +709,8 @@ classdef MotiveStreamer < handle
                     newFrameIdx, self.x, self.y, self.z, self.qx, self.qy, self.qz, self.qw);
                 
                 if self.writeToFile
-                    self.writeBuffer = [self.writeBuffer...
-                        typecast(self.frameIdx, 'uint8') ...                                % int32 (4 bytes)
-                        typecast(self.frameTimestamp, 'uint8') ...                               % double (8 bytes)
-                        typecast([self.frameLatency, self.pos, self.rot, self.posError], 'uint8') ... % single (8*4 bytes)
-                        uint8(self.posTracked) ...                                      % logical (1 byte)
-                        typecast([self.mx self.my self.mz self.msz self.mres], 'uint8')
-                    ];
+                    self.writeBuffer = [ ...
+                        self.writeBuffer, self.currentFrameToBytes];
                     
                     self.nFramesInBuffer = self.nFramesInBuffer + 1;
                     
@@ -691,6 +725,18 @@ classdef MotiveStreamer < handle
                 
             end
             
+        end
+        
+        function bytes = currentFrameToBytes(self)
+            % CURRENTFRAMETOBYTES generate byte array from the current
+            % frame of data
+            bytes = [ ...
+                typecast(self.frameIdx, 'uint8') ...                                % int32 (4 bytes)
+                typecast(self.frameTimestamp, 'uint8') ...                               % double (8 bytes)
+                typecast([self.frameLatency, self.pos, self.rot, self.posError], 'uint8') ... % single (8*4 bytes)
+                uint8(self.posTracked) ...                                      % logical (1 byte)
+                typecast([self.mx self.my self.mz self.msz self.mres], 'uint8')
+                ];
         end
         
         function printDescriptions(self, dataDescriptions)
