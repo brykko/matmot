@@ -21,9 +21,6 @@ classdef Streamer < handle
     %   'writeBufferNFrames (default 120) number of frames of data stored
     %       in the ouptut file buffer before calling fwrite.
     %
-    %   'streamingMode' (default 'callback') select the desired streaming
-    %       mode, either 'callback' or 'poll'. 'callback' is recommended.
-    %
     %   'timeLimit' (default Inf, only applies to 'poll' mode) stop polling
     %       for new frames after the elapsed time reaches this number.
     %
@@ -164,51 +161,27 @@ classdef Streamer < handle
         function start(self)
             % START - begin streaming
             %
-            % S.STREAM() acquires data continuously. The streaming mode is
-            % set according to the value of the property "streamingMode".
-            % The "callback" mode (default) seems to work best.
+            % S.STREAM() acquires data continuously until the pause() or
+            % finish() methods are called
             
             % Initialize all of the vars to the appropriate starting values
             self.logger.i('Preparing to stream...');
             self.initializeStreaming();
             self.streaming = true;
             
-            if strcmpi(self.streamingMode, 'poll')
-                self.logger.i('Streaming in "poll" mode. Wait until time limit (%.0f s) or press CTRL-C to stop.', self.timeLimit);
-                cleanupObj = onCleanup(@() cleanupCallback(self));
-                while (self.timeElapsed < self.timeLimit)
-                    % Wait after each iteration. Subtract the time taken on the current
-                    % iteration so far. If the main loop time is longer than
-                    % the desired sleep time, warn the user of the overshoot
-                    tic();
-                    self.getFrame();
-                    tWait = self.sleepTimeMs - toc()*1e3;
-                    if tWait > 0
-                        java.lang.Thread.sleep(tWait);
-                    else
-                        self.logger.w('Sleep time overshoot of %.3f ms', -tWait);
-                    end
-                end
-            elseif strcmpi(self.streamingMode, 'callback')
-                self.logger.i('Starting streaming in "callback" mode. Call finish() to stop.');
-                if self.simulate
-                    % Simulate frame ready events with a 120 Hz timer
-                    tim = timer( ...
-                        'Period', 1/120, ...
-                        'TimerFcn', @(~,~) self.getFrame());
-                    start(tim);
-                    self.frameReadyListener = tim;
-                else
-                    % Attach a listener to execute whenever the NatNet client
-                    % notifies the event "OnFrameReady2"
-                    self.frameReadyListener = addlistener(self.NNClient, 'OnFrameReady2', @(~,~) self.getFrame());
-                end
-            end
-            
-            function cleanupCallback(self)
-                self.finish();
-            end
-            
+            self.logger.i('Starting streaming. Call finish() to stop.');
+            if self.simulate
+                % Simulate frame ready events with a 120 Hz timer
+                tim = timer( ...
+                    'Period', 1/120, ...
+                    'TimerFcn', @(~,~) self.getFrame());
+                start(tim);
+                self.frameReadyListener = tim;
+            else
+                % Attach a listener to execute whenever the NatNet client
+                % notifies the event "OnFrameReady2"
+                self.frameReadyListener = addlistener(self.NNClient, 'OnFrameReady2', @(~,~) self.getFrame());
+            end            
         end
         
         function finish(self)
@@ -223,7 +196,7 @@ classdef Streamer < handle
             end
             
             % For callback mode, delete the FrameReady listener
-            if strcmpi(self.streamingMode, 'callback') && isvalid(self.frameReadyListener)
+            if isvalid(self.frameReadyListener)
                 delete(self.frameReadyListener);
             end
             
@@ -463,7 +436,6 @@ classdef Streamer < handle
             printprm('frame_increment', self.frameIncrement, '%u')
             printprm('writebuff_nframes', self.writeBufferNFrames, '%u')
             printprm('sleeptime_ms', self.sleepTimeMs, '%.3f')
-            printprm('streaming_mode', self.streamingMode)
             printprm('n_markers', self.nMarkers, '%u')
             
             % Fill remaining header allocation with white space
@@ -522,7 +494,6 @@ classdef Streamer < handle
             inp.addParameter('hostIP', self.hostIP);
             inp.addParameter('writeBufferNFrames', self.writeBufferNFrames);
             inp.addParameter('simulate', self.simulate);
-            inp.addParameter('streamingMode', self.streamingMode);
             
             inp.parse(varargin{:});
             P = inp.Results;
