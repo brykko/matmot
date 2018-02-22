@@ -359,7 +359,7 @@ classdef Streamer < handle
             % If there's a preexisting client, it means the last call to this function
             % did not complete, so we need to uninitialize it to prevent MATLAB crashing.
             
-            self.logger.i('Initializing NatNet client...');
+            self.logger.d('Initializing NatNet client...');
             
             if isempty(self.NNClient)
                 % No client currently exists: create a new one
@@ -375,7 +375,7 @@ classdef Streamer < handle
                 end
                 client = NatNetML.NatNetClientML(0); % Input = iConnectionType: 0 = Multicast, 1 = Unicast
                 version = client.NatNetVersion();
-                self.logger.i('Created new NatNet Client, Version : %d.%d.%d.%d', version(1), version(2), version(3), version(4) );
+                self.logger.d('Created new NatNet Client, Version : %d.%d.%d.%d', version(1), version(2), version(3), version(4) );
                 self.NNClient = client;
             else
                 % Client already exists: uninitialize it before
@@ -500,7 +500,7 @@ classdef Streamer < handle
         function closeOutputFile(self)
             if self.fileOpen
                 filePath = fullfile(self.dataDir, self.fileName);
-                self.logger.i('Closing file "%s"', filePath);
+                self.logger.d('Closing file "%s"', filePath);
                 fclose(self.fid);
                 self.fileOpen = false;
             end
