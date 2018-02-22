@@ -58,7 +58,7 @@ classdef Streamer < matlab.unittest.TestCase
         end
         
         function frameCorrectNBytes(self)
-            % Check that the number of encoded bytes from a frame match the 
+            % Check that the number of encoded bytes from a frame match the
             % expected number
             streamer = self.createStreamer();
             streamer.start();
@@ -99,7 +99,7 @@ classdef Streamer < matlab.unittest.TestCase
                     else
                         nRows = 1;
                     end
-                        
+                    
                     val = streamer.(name);
                     
                     % Check that class matches the required encoding
@@ -205,20 +205,48 @@ classdef Streamer < matlab.unittest.TestCase
         end
         
         function resumeContinuesAcquisision(self)
-           streamer = self.createStreamer();
-           streamer.start();
-           streamer.pause();
-           n1 = streamer.nFramesAcquired;
-           streamer.start();
-           pause(0.1);
-           n2 = streamer.nFramesAcquired;
-           self.verifyTrue(n1~=n2, 'Number of frames did not change after resuming')
+            streamer = self.createStreamer();
+            streamer.start();
+            streamer.pause();
+            n1 = streamer.nFramesAcquired;
+            streamer.start();
+            pause(0.1);
+            n2 = streamer.nFramesAcquired;
+            self.verifyTrue(n1~=n2, 'Number of frames did not change after resuming')
         end
         
         function loadSampleData(self)
             rootPath = fileparts(fileparts(mfilename('fullpath')));
             sampleFilePath = fullfile(rootPath, '+samples', 'motive_stream.mtv');
             matmot.loadMtvFile(sampleFilePath);
+        end
+        
+        function noDataTimeout(self)
+            function callback(~, ~)
+                n = n+1;
+            end
+            
+            % With long timeout, check the event isn't notified
+            n = 0;
+            streamer = self.createStreamer();
+            streamer.noDataTimeout = 1;
+            addlistener(streamer, 'noData', @callback);
+            streamer.start();
+            pause(0.1);
+            streamer.finish();
+            self.verifyTrue(n==0, 'Timeout warning was notified');
+            
+            % With short timeout, it should be notified multiple times
+            n = 0;
+            streamer = self.createStreamer();
+            streamer.noDataTimeout = 1/300;
+            addlistener(streamer, 'noData', @callback);
+            streamer.start();
+            pause(0.1);
+            streamer.finish();
+            self.verifyTrue(n>1, 'Timeout warning was not notified');
+            
+            
         end
         
     end

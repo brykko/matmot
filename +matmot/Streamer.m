@@ -60,6 +60,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         frameIncrement      (1,1) double {mustBeInteger, mustBePositive} = 1
         writeBufferNFrames  (1,1) double {mustBeInteger, mustBePositive} = 120
         nMarkers            (1,1) double {mustBeInteger, mustBeNonnegative} = 0
+        noDataTimeout       (1,1) double {mustBeNonnegative} = 1;
         
         % Misc
         debug               (1,1) logical = false
@@ -136,6 +137,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     
     properties (SetAccess = protected, Transient)
         frameReadyListener
+        noDataTimer
     end
     
     events
@@ -146,11 +148,12 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         
         preGetFrame      % Immediately before a new frame is written
         postGetFrame     % Immediately after a new frame is written
-        droppedFrame     % When one or more dropped frames are detected
-        duplicateFrame   % When the registered frame is identical to the last
-        untrackedFrame   % When an untracked frame is registered
-        trackingLost     % When a period of untracked frames begins
-        trackingResumed  % When a period of untracked frames ends
+        droppedFrame     % One or more dropped frames are detected
+        duplicateFrame   % The registered frame is identical to the last
+        untrackedFrame   % An untracked frame is registered
+        trackingLost     % A period of untracked frames begins
+        trackingResumed  % A period of untracked frames ends
+        noData           % No frames received during specified timeout period
     end
     
     methods
@@ -205,6 +208,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                     self.frameReadyListener = addlistener(self.NNClient, 'OnFrameReady2', @(~,~) callback(self));
                 end
             end
+            
+            start(self.noDataTimer)
             self.streaming = true;
             
             function callback(streamer)
@@ -223,6 +228,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             if ~self.streaming
                 self.logger.w('Not currently streaming. Calling pause() will have no effect!');
             end
+            stop(self.noDataTimer)
             self.streaming = false;
         end
         
@@ -238,6 +244,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 self.logger.w('Streaming has not been initialized. Calling finish() will have no effect!');
                 return;
             end
+            
+            stop(self.noDataTimer)
             
             % finish() may be called after a previous call to finish()
             if self.streamingFinished
@@ -446,7 +454,22 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             self.msz = zeros(self.nMarkers, 1, 'single');
             self.mres = zeros(self.nMarkers, 1, 'single');
             
+            % Start a timer that will emit warnings at regular intervals if
+            % no frames are received within a user-defined timeout period.
+            % Every call to getFrame() resets this timer, so it will never
+            % fire its callback unless getFrame() fails to be called for
+            % the whole timeout period
+            self.noDataTimer = timer( ...
+                'ExecutionMode', 'fixedSpacing', ...
+                'Period', self.noDataTimeout, ...
+                'StartDelay', self.noDataTimeout, ...
+                'TimerFcn', @(~,~) noDataWarning(self));
             self.streamingInitialized = true;
+            
+            function noDataWarning(streamer)
+                streamer.logger.w('WARNING! No frame data received for %.1g s', streamer.noDataTimeout);
+                streamer.notify('noData');
+            end
             
         end
         
@@ -456,6 +479,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             if self.streamingInitialized && ~self.streamingFinished
                 self.finish();
             end
+            delete(self.noDataTimer);
             self.closeClient();
             self.closeOutputFile();
             self.closeLogFile();
@@ -580,6 +604,10 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             
             tic();
             self.logger.v('getFrame()');
+            
+            % Restart the no-frame-data warning timer
+            stop(self.noDataTimer);
+            start(self.noDataTimer);
             
             % Get new frame of data
             if self.simulate
