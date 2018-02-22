@@ -58,7 +58,6 @@ classdef Streamer < handle
         % Misc
         debug               (1,1) logical = false
         simulate            (1,1) logical = false
-        streamingMode       (1,:) char {mustBeMember(streamingMode, {'poll', 'callback'})} = 'callback'
     end
     
     properties (SetAccess = protected)
