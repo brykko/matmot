@@ -35,6 +35,10 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     %   Streamer will still acquired data and notify events as normal, but
     %   no data will be written to file.
     %
+    %   'noDataTimeout' (default 1.0) the number of seconds to wait to
+    %   receive new frames from Motive before displaying a warning and
+    %   notifying the 'noData' event.
+    %
     % --------------------------------------------------------------------
     % STREAMING
     %
@@ -851,7 +855,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 'frameIncrement'
                 'writeBufferNFrames'
                 'nMarkers'
-                'simulate'}, 'User-defined settings');
+                'simulate'
+                'noDataTimeout'}, 'User-defined settings');
             
             props(2) = PropertyGroup({
                 'x'
