@@ -215,5 +215,11 @@ classdef Streamer < matlab.unittest.TestCase
            self.verifyTrue(n1~=n2, 'Number of frames did not change after resuming')
         end
         
+        function loadSampleData(self)
+            rootPath = fileparts(fileparts(mfilename('fullpath')));
+            sampleFilePath = fullfile(rootPath, '+samples', 'motive_stream.mtv');
+            matmot.loadMtvFile(sampleFilePath);
+        end
+        
     end
 end

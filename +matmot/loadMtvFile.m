@@ -5,8 +5,8 @@ function [data] = loadMtvFile(fileName)
 % specified by FILENAME, return structure DATA. Fields of DATA are as
 % follows:
 %
-%   frameIdx (int32) - number of Motive frame. Frames are counted from when
-%   Motive was opened.
+%   frameIdx (int32) - Motive frame ID. Frames are counted from when Motive 
+%   was opened.
 %
 %   frameTimestamp (double) - time of Motive frame, relative to when Motive
 %   was opened.
@@ -42,7 +42,7 @@ import matmot.FormatSpec
 [pth, fn, ext] = fileparts(fileName);
 if isempty(pth), pth = pwd(); end
 fpth = fullfile(pth, [fn ext]);
-assert(exist(fpth, 'file') > 0, 'File "%s" does not exist');
+assert(exist(fpth, 'file') > 0, 'File "%s" does not exist', fpth);
 [fid, msg] = fopen(fpth, 'r');
 if fid == -1
     error('Could not open file %s: message "%s"', fpth, msg);
