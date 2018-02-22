@@ -1,14 +1,15 @@
-classdef Streamer < handle
+classdef Streamer < handle & matlab.mixin.CustomDisplay
     %STREAMER stream OptiTrack Motive data to binary files.
     %
     % Streamer objects stream data from a NatNet client, saving the
     % received data frames to a binary file.
     %
-    % S = STREAMER() creates a new Streamer object S.
+    % S = STREAMER() creates a new Streamer object S with default parameter
+    % settings.
     %
     % S = STREAMER(PRM, VAL, ... ) creates a new Streamer object S and
-    % initializes it with the specified parameter values. The available
-    % parameters are as follows:
+    % initializes it with the specified parameter-value pair arguments. The 
+    % available parameters are as follows:
     %
     %   'hostIp' (default '127.0.0.1') host IP address
     %
@@ -29,6 +30,11 @@ classdef Streamer < handle
     %   slow down the streaming process and may result in more dropped
     %   frames.
     %
+    %   'writeToFile' (default TRUE) specifies whether acquired frames will
+    %   be written to the .mtv file or not. If the value is FALSE, the
+    %   Streamer will still acquired data and notify events as normal, but
+    %   no data will be written to file.
+    %
     % --------------------------------------------------------------------
     % STREAMING
     %
@@ -39,7 +45,7 @@ classdef Streamer < handle
     %
     % S.FINISH() finishes acquisition and closes the data file.
     
-    properties (Transient)
+    properties (SetAccess = protected, Transient)
         NNClient
     end
     
@@ -63,12 +69,14 @@ classdef Streamer < handle
     properties (SetAccess = protected)
         % Aqcuisition results
         frameRate
-        nFramesAcquired
-        nFramesDropped
-        nFramesInBuffer
+        nFramesAcquired = 0;
+        nFramesDropped = 0;
+        nFramesInBuffer = 0;
+        
         meanGetFrameTime
-        firstFrame
-        firstFrameTimestamp
+        firstFrame = true;
+        firstFrameIdx
+        firstFrameTimestamp = 0;
         frameIdx = int32(0);
         lastTrackedFrameIdx
         
@@ -84,7 +92,7 @@ classdef Streamer < handle
         qz = single(0);
         qw = single(0);
         
-        % Marker info
+        % Marker info (don't initialize here; dims are unknown)
         mx
         my
         mz
@@ -93,8 +101,7 @@ classdef Streamer < handle
         
         posError = single(0);
         posTracked = uint8(0);
-        firstFrameIdx
-        frameTimestamp
+        frameTimestamp = 0;
         frameLatency = single(0)
     end
     
@@ -109,7 +116,7 @@ classdef Streamer < handle
         VERSION = '0.0.3'
     end
     
-    properties (SetAccess = protected, Hidden)
+    properties (SetAccess = protected)
         % Streaming state
         clientInitialized = false;
         streamingInitialized = false;
@@ -127,7 +134,7 @@ classdef Streamer < handle
         meanWriteTime
     end
     
-    properties (SetAccess = protected, Hidden, Transient)
+    properties (SetAccess = protected, Transient)
         frameReadyListener
     end
     
@@ -159,16 +166,10 @@ classdef Streamer < handle
             % Streamer object S and initializes it with specified
             % parameter/values pairs. See main docstring for available
             % parameters.
-            %
-            
-            % Parse optional param/value args
             self.parseInputs(varargin{:});
-            
             self.initializeLogging();
             self.initializeClient();
-            
             self.logger.i('Initialization complete. Call stream() to begin streaming.');
-            
         end
         
         function start(self)
@@ -437,16 +438,7 @@ classdef Streamer < handle
             self.writeHeader();
             
             % Initialize various streaming variables
-            self.streaming = false;
-            self.writeBuffer = [];
             self.writeBufferTmp = zeros(1, self.nBytesPerFrame(), 'uint8');
-            self.nFramesAcquired = 0;
-            self.nFramesDropped = 0;
-            self.nFramesInBuffer = 0;
-            self.firstFrame = true;
-            self.lastTrackedFrameIdx = int32(0);
-            self.firstFrameTimestamp = 0;
-            self.frameTimestamp = 0;
             
             self.mx = zeros(self.nMarkers, 1, 'single');
             self.my = zeros(self.nMarkers, 1, 'single');
@@ -819,6 +811,57 @@ classdef Streamer < handle
             
         end
         
+    end
+    
+    methods (Access = protected)
+        function props = getPropertyGroups(self)
+            import matlab.mixin.util.PropertyGroup
+            props(1) = PropertyGroup({
+                'hostIP'
+                'fileName'
+                'writeToFile'
+                'frameIncrement'
+                'writeBufferNFrames'
+                'nMarkers'
+                'simulate'}, 'User-defined settings');
+            
+            props(2) = PropertyGroup({
+                'x'
+                'y'
+                'z'
+                'qx'
+                'qy'
+                'qz'
+                'qw'
+                'posError'
+                'posTracked'
+                'frameTimestamp'
+                'frameIdx'}, 'Rigid body data');
+            
+            props(3) = PropertyGroup({
+                'mx'
+                'my'
+                'mz'
+                'msz'
+                'mres'}, 'Marker data');
+            
+            props(4) = PropertyGroup({
+                'frameRate'
+                'nFramesAcquired'
+                'nFramesDropped'
+                'nFramesInBuffer'
+                'meanGetFrameTime'
+                'firstFrameIdx'
+                'firstFrameTimestamp'}, 'Tracking summary data');
+            
+            props(5) = PropertyGroup({
+                'fileOpen'
+                'dataDir'
+                'nWriteCycles'
+                'meanWriteTime'
+            }, 'Data file info');
+        
+        end
     end
     
 end
