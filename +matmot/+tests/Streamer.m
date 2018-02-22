@@ -35,7 +35,7 @@ classdef Streamer < matlab.unittest.TestCase
     
     methods (Test)
         
-        function OutputFilesExist(self)
+        function outputFilesExist(self)
             % Check the three output files exist with the names they're
             % supposed to have
             streamer = self.createStreamer();
@@ -57,7 +57,7 @@ classdef Streamer < matlab.unittest.TestCase
             end
         end
         
-        function FrameCorrectNBytes(self)
+        function frameCorrectNBytes(self)
             % Check that the number of encoded bytes from a frame match the 
             % expected number
             streamer = self.createStreamer();
@@ -71,7 +71,7 @@ classdef Streamer < matlab.unittest.TestCase
                 'Mismatch between expected and actual number of frame bytes');
         end
         
-        function FrameCorrectEncodings(self)
+        function frameCorrectEncodings(self)
             % Check that all fields in a frame are of the expected encoding
             import matmot.FormatSpec
             streamer = self.createStreamer();
@@ -118,7 +118,7 @@ classdef Streamer < matlab.unittest.TestCase
             
         end
         
-        function DataWritten(self)
+        function dataWritten(self)
             % Check that the acquired data is faithfully written to file
             
             streamer = self.createStreamer();
@@ -148,42 +148,73 @@ classdef Streamer < matlab.unittest.TestCase
             self.verifyTrue(isequal(data',fileData), 'File contents did not match acquired bytes');
         end
         
-        function DataRead(self)
-            % Check that acquired data is faithfully loaded
-            streamer = self.createStreamer();
+        function dataRead(self)
             
             fields = matmot.FormatSpec.fields();
-            for f = 1:numel(fields)
-                data.(fields(f).name) = [];
-            end
             
             function gatherData()
                 % Append current values of data fields as rows
                 for f = 1:numel(fields)
                     name = fields(f).name;
-                    data.(name) = [data.(name); streamer.(name)];
+                    data.(name) = [data.(name); self.streamer.(name)];
                 end
             end
             
-            addlistener(streamer, 'postGetFrame', @(src, event) gatherData);
-            self.streamer.start();
-            pause(1);
-            self.streamer.finish();
-            filepath = self.streamer.getFiles().data;
-            dataLoaded = matmot.loadMtvFile(filepath);
+            nMarkers = [0, 20]; % test both with and without markers
             
-            for f = 1:numel(fields)
-                name = fields(f).name;
-                valOriginal = data.(name);
-                valLoaded = dataLoaded.(name);
-                msg = sprintf('Data field "%s" was empty', name);
-                self.assertFalse(isempty(valOriginal), msg);
-                msg = sprintf('Loaded values of field "%s" values different from acquisition values', name);
-                self.verifyTrue(isequal(valOriginal, valLoaded), msg)
+            for m = 1:2
+                % Check that acquired data is faithfully loaded
+                streamer = self.createStreamer('nMarkers', nMarkers(m));
+                for f = 1:numel(fields)
+                    data.(fields(f).name) = [];
+                end
+                addlistener(streamer, 'postGetFrame', @(src, event) gatherData);
+                
+                self.streamer.start();
+                pause(1);
+                self.streamer.finish();
+                
+                filepath = self.streamer.getFiles().data;
+                dataLoaded = matmot.loadMtvFile(filepath);
+                for f = 1:numel(fields)
+                    name = fields(f).name;
+                    valOriginal = data.(name);
+                    valLoaded = dataLoaded.(name);
+                    msg = sprintf('Data field "%s" was empty', name);
+                    self.assertFalse(isempty(valOriginal), msg);
+                    msg = sprintf('Loaded values of field "%s" values different from acquisition values', name);
+                    self.verifyTrue(isequal(valOriginal, valLoaded), msg)
+                end
             end
-            
-
         end
+        
+        function pauseStopsAqcuisition(self)
+            streamer = self.createStreamer();
+            streamer.start();
+            pause(0.1);
+            self.assertTrue(streamer.nFramesAcquired > 0, 'Streamer failed to capture any frames')
+            
+            % Pause the streamer, wait a while and check that no more
+            % frames have been acquired
+            streamer.pause();
+            n1 = streamer.nFramesAcquired;
+            pause(0.1);
+            n2 = streamer.nFramesAcquired;
+            msg = sprintf('Number of acquired frames increased from %u to %u while paused', n1, n2);
+            self.verifyTrue(n1==n2, msg);
+        end
+        
+        function resumeContinuesAcquisision(self)
+           streamer = self.createStreamer();
+           streamer.start();
+           streamer.pause();
+           n1 = streamer.nFramesAcquired;
+           streamer.start();
+           pause(0.1);
+           n2 = streamer.nFramesAcquired;
+           self.verifyTrue(n1~=n2, 'Number of frames did not change after resuming')
+        end
+        
     end
 end
 

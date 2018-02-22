@@ -1,28 +1,33 @@
 classdef Streamer < handle
     %STREAMER stream OptiTrack Motive data to binary files.
     %
-    % Streamer objects stream data from a NatNet client, saving the 
-    % received data frames to a binary file. 
+    % Streamer objects stream data from a NatNet client, saving the
+    % received data frames to a binary file.
     %
     % S = STREAMER() creates a new Streamer object S.
     %
-    % S = STREAMER(PRM, VAL, ... ) creates a new Streamer object S and 
-    % initializes it with the specified parameter values. The available 
+    % S = STREAMER(PRM, VAL, ... ) creates a new Streamer object S and
+    % initializes it with the specified parameter values. The available
     % parameters are as follows:
     %
     %   'hostIp' (default '127.0.0.1') host IP address
     %
     %   'fileName' (default 'motive_stream.mtv') name of output file
     %
-    %   'frameIncrement' (default 1) save received frames with this 
+    %   'frameIncrement' (default 1) save received frames with this
     %       interval. A value of 1 saves every frame; a value of 3 saves
     %       every third frame, etc.
     %
     %   'writeBufferNFrames (default 120) number of frames of data stored
     %       in the ouptut file buffer before calling fwrite.
     %
-    %   'timeLimit' (default Inf, only applies to 'poll' mode) stop polling
-    %       for new frames after the elapsed time reaches this number.
+    %   'nMarkers' (default 0) maximum number of labelled markers to record 
+    %   in file. The coordinates of markers received in frames from the
+    %   NatNet client will be written to the .mtv file, up to the limit
+    %   specified by nMarkers. Increasing the value of nMarkers will reduce
+    %   the probability that markers of interest are not recorded, but will
+    %   slow down the streaming process and may result in more dropped
+    %   frames.
     %
     % --------------------------------------------------------------------
     % STREAMING
@@ -43,12 +48,10 @@ classdef Streamer < handle
         fileName            (1,:) char = 'motive_stream.mtv'
         
         % Aqcuisition settings
-        timeLimit           (1,1) double {mustBePositive} = inf
         writeToFile         (1,1) logical = true
         frameIncrement      (1,1) double {mustBeInteger, mustBePositive} = 1
         writeBufferNFrames  (1,1) double {mustBeInteger, mustBePositive} = 120
-        sleepTimeMs         (1,1) double {mustBeNonnegative} = 5
-        nMarkers            (1,1) double {mustBeInteger, mustBeNonnegative} = 20
+        nMarkers            (1,1) double {mustBeInteger, mustBeNonnegative} = 0
         
         % Misc
         debug               (1,1) logical = false
@@ -56,13 +59,13 @@ classdef Streamer < handle
         streamingMode       (1,:) char {mustBeMember(streamingMode, {'poll', 'callback'})} = 'callback'
     end
     
-    properties (SetAccess = protected)        
+    properties (SetAccess = protected)
         % Aqcuisition results
         frameRate
-        streaming
         nFramesAcquired
         nFramesDropped
         nFramesInBuffer
+        meanGetFrameTime
         firstFrame
         firstFrameTimestamp
         frameIdx = int32(0);
@@ -93,7 +96,7 @@ classdef Streamer < handle
         frameTimestamp
         frameLatency = single(0)
     end
-
+    
     properties (SetAccess = protected, Dependent)
         timeElapsed
         pos
@@ -101,21 +104,30 @@ classdef Streamer < handle
     end
     
     properties (Constant)
-       HEADER_LENGTH = 2^14
-       VERSION = '0.0.3'
+        HEADER_LENGTH = 2^14
+        VERSION = '0.0.3'
     end
     
-    properties (SetAccess = protected, Hidden, Transient)
+    properties (SetAccess = protected, Hidden)
+        % Streaming state
         clientInitialized = false;
-        frameReadyListener
+        streamingInitialized = false;
+        streaming = false;
+        streamingFinished = false;
         
+        % Data file
         fileOpen = false;
         fid
         dataDir
         writeBuffer = uint8.empty()
         writeBufferTmp
-        
-        logger        
+        logger
+        nWriteCycles = 0;
+        meanWriteTime
+    end
+    
+    properties (SetAccess = protected, Hidden, Transient)
+        frameReadyListener
     end
     
     events
@@ -138,12 +150,12 @@ classdef Streamer < handle
         function self = Streamer(varargin)
             % STREAMER constructor
             %
-            % S = STREAMER(DLLPATH) creates a new Streamer 
-            % object S using the NatNet DLL at the path specified by 
+            % S = STREAMER(DLLPATH) creates a new Streamer
+            % object S using the NatNet DLL at the path specified by
             % DLLPATH.
             %
-            % S = STREAMER(DLLPATH, PRM, VAL, ... ) creates a new 
-            % Streamer object S and initializes it with specified 
+            % S = STREAMER(DLLPATH, PRM, VAL, ... ) creates a new
+            % Streamer object S and initializes it with specified
             % parameter/values pairs. See main docstring for available
             % parameters.
             %
@@ -159,44 +171,80 @@ classdef Streamer < handle
         end
         
         function start(self)
-            % START - begin streaming
+            % START - begin or resume streaming
             %
-            % S.STREAM() acquires data continuously until the pause() or
-            % finish() methods are called
+            % S.START() starts acquistion of data to disk. Acquisition
+            % continues until the pause() or finish() methods are called.
+            %
+            % Calling S.STREAM() after previously calling pause() will
+            % resume streaming.
+            
+            % Check finish() hasn't been called
+            if self.streamingFinished
+                self.logger.w('Cannot resume streaming after calling finish()');
+                return;
+            end
             
             % Initialize all of the vars to the appropriate starting values
-            self.logger.i('Preparing to stream...');
-            self.initializeStreaming();
+            if ~self.streamingInitialized
+                self.initializeStreaming();
+                self.logger.i('Starting streaming. Call finish() to stop.');
+                if self.simulate
+                    % Simulate frame ready events with a 120 Hz timer
+                    tim = timer( ...
+                        'Period', 1/120, ...
+                        'TimerFcn', @(~,~) callback(self), ...
+                        'ExecutionMode', 'fixedRate');
+                    start(tim);
+                    self.frameReadyListener = tim;
+                else
+                    % Attach a listener to execute whenever the NatNet client
+                    % notifies the event "OnFrameReady2"
+                    self.frameReadyListener = addlistener(self.NNClient, 'OnFrameReady2', @(~,~) callback(self));
+                end
+            end
             self.streaming = true;
             
-            self.logger.i('Starting streaming. Call finish() to stop.');
-            if self.simulate
-                % Simulate frame ready events with a 120 Hz timer
-                tim = timer( ...
-                    'Period', 1/120, ...
-                    'TimerFcn', @(~,~) self.getFrame());
-                start(tim);
-                self.frameReadyListener = tim;
-            else
-                % Attach a listener to execute whenever the NatNet client
-                % notifies the event "OnFrameReady2"
-                self.frameReadyListener = addlistener(self.NNClient, 'OnFrameReady2', @(~,~) self.getFrame());
-            end            
+            function callback(streamer)
+                if streamer.streaming
+                    streamer.getFrame();
+                end
+            end
+            
+        end
+        
+        function pause(self)
+            % PAUSE - temporarily pause streaming
+            %
+            % S.PAUSE() stops Streamer object S from receiving new tracking
+            % data.
+            if ~self.streaming
+                self.logger.w('Not currently streaming. Calling pause() will have no effect!');
+            end
+            self.streaming = false;
         end
         
         function finish(self)
             % FINISH - finish streaming
             %
-            % If writes any remaining data in the buffer,
-            % closes the file and saves self to file
+            % S.FINISH() stops acquiring data, closes the data file and
+            % saves Streamer object S to a .mat file.
             
-            if ~self.streaming
-                self.logger.w('Not currently streaming. Calling finish() will have no effect!');
+            % Some checks:
+            % finish() may be called before streaming has begun
+            if ~self.streamingInitialized
+                self.logger.w('Streaming has not been initialized. Calling finish() will have no effect!');
+                return;
+            end
+            
+            % finish() may be called after a previous call to finish()
+            if self.streamingFinished
+                self.logger.w('Streaming has already finished. Calling finish() will have no effect!');
                 return;
             end
             
             % For callback mode, delete the FrameReady listener
-            if isvalid(self.frameReadyListener)
+            if ~isempty(self.frameReadyListener) && isvalid(self.frameReadyListener)
                 delete(self.frameReadyListener);
             end
             
@@ -209,7 +257,8 @@ classdef Streamer < handle
             self.closeOutputFile();
             
             % Done! Generate summary and clean up
-            self.logger.i('Streaming finished. Total number of dropped frames: %u', self.nFramesDropped);
+            self.logger.i('Streaming finished. Total number of dropped frames: %u. Mean getFrame time = %.2f ms, flushBuffer time = %.2f ms.', ...
+                self.nFramesDropped, self.meanGetFrameTime*1e3, self.meanWriteTime*1e3);
             
             % Save self to .mat file
             filePath = self.getFiles().streamer;
@@ -218,6 +267,7 @@ classdef Streamer < handle
             self.logger.i('Saved Streamer obj in file %s', filePath);
             
             self.streaming = false;
+            self.streamingFinished = true;
         end
         
         function paths = getFiles(self)
@@ -230,26 +280,26 @@ classdef Streamer < handle
         end
         
         function deleteFiles(self)
-           % DELETEFILES remove all files associated with Streamer instance
-           
-           if self.streaming
-               error('Please finish streaming before deleting files')
-           end
-           
-           self.closeOutputFile();
-           self.closeLogFile();
-           filePaths = self.getFiles();
-           fields = fieldnames(filePaths);
-           for f = 1:numel(fields)
-               fd = fields{f};
-               pth = filePaths.(fd);
-               fprintf('Deleting %s file "%s"\n', fd, pth);
-               if exist(pth, 'file')
-                   delete(pth)
-               else
-                   warning('Could not delete %s file "%s": file not found.', fd, pth)
-               end
-           end
+            % DELETEFILES remove all files associated with Streamer instance
+            
+            if self.streaming
+                error('Please finish streaming before deleting files')
+            end
+            
+            self.closeOutputFile();
+            self.closeLogFile();
+            filePaths = self.getFiles();
+            fields = fieldnames(filePaths);
+            for f = 1:numel(fields)
+                fd = fields{f};
+                pth = filePaths.(fd);
+                fprintf('Deleting %s file "%s"\n', fd, pth);
+                if exist(pth, 'file')
+                    delete(pth)
+                else
+                    warning('Could not delete %s file "%s": file not found.', fd, pth)
+                end
+            end
         end
         
         function val = get.timeElapsed(self)
@@ -403,12 +453,14 @@ classdef Streamer < handle
             self.msz = zeros(self.nMarkers, 1, 'single');
             self.mres = zeros(self.nMarkers, 1, 'single');
             
+            self.streamingInitialized = true;
+            
         end
         
         function delete(self)
             % Destructor: handle any remaining cleanup processes
             self.logger.d('Calling class destructor');
-            if self.streaming
+            if self.streamingInitialized && ~self.streamingFinished
                 self.finish();
             end
             self.closeClient();
@@ -435,8 +487,8 @@ classdef Streamer < handle
             printprm('file_name', self.fileName)
             printprm('frame_increment', self.frameIncrement, '%u')
             printprm('writebuff_nframes', self.writeBufferNFrames, '%u')
-            printprm('sleeptime_ms', self.sleepTimeMs, '%.3f')
             printprm('n_markers', self.nMarkers, '%u')
+            printprm('simulate', self.simulate, '%u')
             
             % Fill remaining header allocation with white space
             nBytesWritten = ftell(self.fid);
@@ -486,13 +538,11 @@ classdef Streamer < handle
             inp.KeepUnmatched = false;
             
             inp.addParameter('fileName', self.fileName);
-            inp.addParameter('timeLimit', self.timeLimit);
-            inp.addParameter('debug', self.debug);
             inp.addParameter('writeToFile', self.writeToFile);
             inp.addParameter('frameIncrement', self.frameIncrement);
-            inp.addParameter('sleepTimeMs', self.sleepTimeMs);
             inp.addParameter('hostIP', self.hostIP);
             inp.addParameter('writeBufferNFrames', self.writeBufferNFrames);
+            inp.addParameter('nMarkers', self.nMarkers);
             inp.addParameter('simulate', self.simulate);
             
             inp.parse(varargin{:});
@@ -516,8 +566,12 @@ classdef Streamer < handle
             if ~isempty(self.writeBuffer)
                 self.logger.v('Flushing write buffer');
                 try
+                    tic()
                     fwrite(self.fid, self.writeBuffer, '*uint8');
                     self.writeBuffer = [];
+                    self.nWriteCycles = self.nWriteCycles+1;
+                    self.meanWriteTime = runningMean( ...
+                        toc(), self.nWriteCycles, self.meanWriteTime);
                 catch e
                     warning('Error while trying to write %u frames: "%s"', ...
                         self.nFramesInBuffer, e.message);
@@ -531,6 +585,7 @@ classdef Streamer < handle
             % This may be called either within a polling loop, or by a
             % callback triggered on "FrameReady" events
             
+            tic();
             self.logger.v('getFrame()');
             
             % Get new frame of data
@@ -621,19 +676,19 @@ classdef Streamer < handle
                     self.posTracked = uint8(rb.Tracked);
                     for m = 1:self.nMarkers
                         marker = frame.LabeledMarkers(m);
-                       if isempty(marker)
-                           self.mx(m) = nan;
-                           self.my(m) = nan;
-                           self.mz(m) = nan;
-                           self.msz(m) = nan;
-                           self.mres(m) = nan;
-                       else
-                           self.mx(m) = marker.x;
-                           self.my(m) = marker.y;
-                           self.mz(m) = marker.z;
-                           self.msz(m) = marker.size;
-                           self.mres(m) = marker.residual;
-                       end
+                        if isempty(marker)
+                            self.mx(m) = nan;
+                            self.my(m) = nan;
+                            self.mz(m) = nan;
+                            self.msz(m) = nan;
+                            self.mres(m) = nan;
+                        else
+                            self.mx(m) = marker.x;
+                            self.my(m) = marker.y;
+                            self.mz(m) = marker.z;
+                            self.msz(m) = marker.size;
+                            self.mres(m) = marker.residual;
+                        end
                     end
                 end
                 
@@ -642,13 +697,13 @@ classdef Streamer < handle
                 % period.
                 if self.posTracked
                     % Check if the last successfully tracked frame was
-                    % the last frame. If not, this means we're resuming 
-                    % good tracking after a lost period. Notify the user 
+                    % the last frame. If not, this means we're resuming
+                    % good tracking after a lost period. Notify the user
                     % with a warning
                     if self.lastTrackedFrameIdx ~= self.frameIdx
                         nUntracked = self.frameIdx - self.lastTrackedFrameIdx;
                         self.logger.w('Tracking resumed at sample %u, time %.3f, total %u untracked frames', ...
-                        newFrameIdx, newFrameTime, nUntracked);
+                            newFrameIdx, newFrameTime, nUntracked);
                         self.logger.v('Notifying trackingResumed');
                         self.notify('trackingResumed');
                     end
@@ -689,6 +744,12 @@ classdef Streamer < handle
                 
             end
             
+            % Update running average timer
+            t = toc();
+            self.meanGetFrameTime = runningMean( ...
+                t, self.nFramesAcquired, self.meanGetFrameTime);
+            self.logger.v('getFrame() execution time = %.1f ms\n', t*1e3);
+            
         end
         
         function bytes = currentFrameToBytes(self)
@@ -699,7 +760,7 @@ classdef Streamer < handle
                 typecast(self.frameTimestamp, 'uint8') ...                               % double (8 bytes)
                 typecast([self.frameLatency, self.pos, self.rot, self.posError], 'uint8') ... % single (8*4 bytes)
                 uint8(self.posTracked) ...                                      % logical (1 byte)
-                typecast([self.mx; self.my; self.mz; self.msz; self.mres], 'uint8')' 
+                typecast([self.mx; self.my; self.mz; self.msz; self.mres], 'uint8')'
                 ];
         end
         
@@ -761,4 +822,16 @@ classdef Streamer < handle
     
 end
 
+function xb = runningMean(x, n, xb0)
+% Incorporate new observation into a running mean
+% x   - new observation
+% n   - index of the new observation
+% xb0 - last-calculated mean value
 
+if n == 1
+    xb = x;
+else
+    xb = (xb0*(n-1) + x) / n;
+end
+
+end
