@@ -32,10 +32,12 @@ classdef Streamer < handle
     % --------------------------------------------------------------------
     % STREAMING
     %
-    % S.START() begins data acquisition, using the streaming mode
-    % specified by the value of the property "streamingMode".
+    % S.START() begins data acquisition.
     %
-    % S.FINISH() finishes streaming and closes files.
+    % S.PAUSE() temporarily stops acquisition. Call start() again to
+    % resume.
+    %
+    % S.FINISH() finishes acquisition and closes the data file.
     
     properties (Transient)
         NNClient
