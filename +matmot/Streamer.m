@@ -1,5 +1,5 @@
 classdef Streamer < handle & matlab.mixin.CustomDisplay
-    %STREAMER stream OptiTrack Motive data to binary files.
+    %STREAMER stream OptiTrack Motive data to disk
     %
     % Streamer objects stream data from a NatNet client, saving the
     % received data frames to a binary file.
@@ -23,12 +23,14 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     %       in the ouptut file buffer before calling fwrite.
     %
     %   'nMarkers' (default 0) maximum number of labelled markers to record 
-    %   in file. The coordinates of markers received in frames from the
-    %   NatNet client will be written to the .mtv file, up to the limit
-    %   specified by nMarkers. Increasing the value of nMarkers will reduce
-    %   the probability that markers of interest are not recorded, but will
-    %   slow down the streaming process and may result in more dropped
-    %   frames.
+    %   in file. Markers are recorded independently of rigid bodies, so
+    %   this option can be useful if you have markers of interest that are 
+    %   not members of a rigid body (e.g. IR-LEDs for syncing). The 
+    %   x/y/z coordinates of markers received in frames from the NatNet
+    %   client will be written to the .mtv file, up to the limit specified
+    %   by nMarkers. Increasing the value of nMarkers will reduce the
+    %   probability that markers of interest are not recorded, but will 
+    %   increase the processing load and may result in more dropped frames.
     %
     %   'writeToFile' (default TRUE) specifies whether acquired frames will
     %   be written to the .mtv file or not. If the value is FALSE, the
