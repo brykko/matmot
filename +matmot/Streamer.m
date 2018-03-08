@@ -176,7 +176,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             self.parseInputs(varargin{:});
             self.initializeLogging();
             self.initializeClient();
-            self.logger.i('Initialization complete. Call stream() to begin streaming.');
+            self.logger.i('Initialization complete. Call start() to begin streaming.');
         end
         
         function start(self)
@@ -185,7 +185,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             % S.START() starts acquistion of data to disk. Acquisition
             % continues until the pause() or finish() methods are called.
             %
-            % Calling S.STREAM() after previously calling pause() will
+            % Calling S.START() after previously calling pause() will
             % resume streaming.
             
             % Check finish() hasn't been called
