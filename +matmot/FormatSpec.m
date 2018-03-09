@@ -3,52 +3,65 @@ classdef FormatSpec < handle
     
     properties (Constant)
         
-        FIELD_NAMES = {
+        FRAME_FIELD_NAMES = {
             'frameIdx'
             'frameTimestamp'
-            'frameLatency'
-            'pos'
-            'rot'
-            'posError'
-            'posTracked'};
+            'frameLatency'}
         
-        ENCODINGS = {
+        FRAME_ENCODINGS = {
             'int32'
             'double'
+            'single'}
+        
+        RB_FIELD_NAMES = {
+            'rbx'
+            'rby'
+            'rbz'
+            'rbqx'
+            'rbqy'
+            'rbqz'
+            'rbqw'
+            'rbError'
+            'rbTracked'}
+        
+        RB_ENCODINGS = {
             'single'
-            '3*single'
-            '4*single'
             'single'
-            'uint8'};
+            'single'
+            'single'
+            'single'
+            'single'
+            'single'
+            'single'
+            'uint8'}
         
         MARKER_FIELD_NAMES = {
             'mx'
             'my'
             'mz'
             'msz'
-            'mres'};
+            'mres'}
         
         MARKER_ENCODINGS = {
             'single'
             'single'
             'single'
             'single'
-            'single'
-            }
+            'single'}
         
     end
     
     methods (Static)
         
-        function S = fields()
+        function S = rbFields()
             % Field encodings as a struct array
             import matmot.FormatSpec
-            [byteInds, nBytes] = FormatSpec.getByteInds(FormatSpec.ENCODINGS);
+            [byteInds, nBytes] = FormatSpec.getByteInds(FormatSpec.RB_ENCODINGS);
             S = struct( ...
-                'name', FormatSpec.FIELD_NAMES, ...
+                'name', FormatSpec.RB_FIELD_NAMES, ...
                 'byte_inds', num2cell(byteInds'), ...
                 'n_bytes', num2cell(nBytes'), ...
-                'encoding', FormatSpec.ENCODINGS);
+                'encoding', FormatSpec.RB_ENCODINGS);
         end
         
         function S = markerFields()
@@ -62,8 +75,33 @@ classdef FormatSpec < handle
                 'encoding', FormatSpec.MARKER_ENCODINGS);
         end
         
+        function S = basicFields()
+            % Marker field encodings as a struct array
+            import matmot.FormatSpec
+            [byteInds, nBytes] = FormatSpec.getByteInds(FormatSpec.FRAME_ENCODINGS);
+            S = struct( ...
+                'name', FormatSpec.FRAME_FIELD_NAMES, ...
+                'byte_inds', num2cell(byteInds'), ...
+                'n_bytes', num2cell(nBytes'), ...
+                'encoding', FormatSpec.FRAME_ENCODINGS);
+        end
+        
+        function nBytes = bytesBasic()
+            % Number of bytes for basic frame fields
+            import matmot.FormatSpec
+            fields = FormatSpec.basicFields();
+            nBytes = sum([fields.n_bytes]);
+        end
+        
+        function nBytes = bytesPerRb()
+            % Number of bytes needed to encode data of rigid body
+            import matmot.FormatSpec
+            fields = FormatSpec.rbFields();
+            nBytes = sum([fields.n_bytes]);
+        end
+        
         function nBytes = bytesPerMarker()
-            % Number of bytes needed to encode all of a marker's fields
+            % Number of bytes needed to encode data of one marker
             import matmot.FormatSpec
             fields = FormatSpec.markerFields();
             nBytes = sum([fields.n_bytes]);
@@ -88,7 +126,7 @@ classdef FormatSpec < handle
         end
         
         function [inds, nBytes] = getByteInds(encodings)
-            % Byte indices and numbers 
+            % Byte indices and numbers
             import matmot.FormatSpec
             idx0 = 1;
             for n = 1:numel(encodings)
@@ -99,16 +137,17 @@ classdef FormatSpec < handle
             end
         end
         
-        function nBytes = bytesPerFrame(nMarkers)
-            %BYTESPERFRAME number of bytes needed to encode one frame
+        function nBytes = bytesPerFrame(nRbs, nMarkers)
+            %BYTESPERFRAME number of bytes needed to encode one frame.
             %
-            % NBYTES = BYTESPERFRAME(NMARKERS) returns the number of bytes 
-            % NBYTES needed to encode a frame containing the maximum 
-            % marker count NMARKERS.
+            % NBYTES = BYTESPERFRAME(NRBS, NMARKERS) returns the number of
+            % bytes NBYTES needed to encode a frame containing the rigid
+            % body count NRBS and the marker count NMARKERS.
             import matmot.FormatSpec
-            fields = FormatSpec.fields();
-            nBytesBasic = sum([fields.n_bytes]);
-            nBytes = nBytesBasic + nMarkers*FormatSpec.bytesPerMarker();
+            nBytes = ...
+                FormatSpec.bytesBasic() + ...
+                nRbs*FormatSpec.bytesPerRb() + ...
+                nMarkers*FormatSpec.bytesPerMarker();
         end
         
     end

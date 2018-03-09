@@ -19,8 +19,8 @@ This package provides some simple tools for streaming rigid body and marker data
 ### Quick example script
 Once you've followed the setup instructions above, you can acquire data as demonstrated by this example code snippet:
 ```matlab
-% Create a Streamer object and acquire 60 seconds of data
-streamer = matmot.Streamer();
+% Create a Streamer object and acquire 60 seconds of data from 2 rigid bodies and 20 markers
+streamer = matmot.Streamer('nRigidBodies', 2, 'nMarkers', 20);
 streamer.start();
 pause(60);
 streamer.finish();

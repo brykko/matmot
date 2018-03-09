@@ -1,8 +1,8 @@
 classdef Streamer < handle & matlab.mixin.CustomDisplay
-    %STREAMER stream OptiTrack Motive data to disk
+    %STREAMER stream OptiTrack Motive rigid body and marker data to disk.
     %
-    % Streamer objects stream data from a NatNet client, saving the
-    % received data frames to a binary file.
+    % Streamer objects stream data from Motive, saving the received data 
+    % frames to a binary file.
     %
     % S = STREAMER() creates a new Streamer object S with default parameter
     % settings.
@@ -19,8 +19,10 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     %       interval. A value of 1 saves every frame; a value of 3 saves
     %       every third frame, etc.
     %
-    %   'writeBufferNFrames (default 120) number of frames of data stored
-    %       in the ouptut file buffer before calling fwrite.
+    %   'nRigidBodies' (default 1) number of rigid bodies to record in
+    %   file. The x/y/z position coordinates and quaternions are saved for
+    %   each rigid body. Rigid bodies are saved in the same order as they
+    %   are configured in Motive.
     %
     %   'nMarkers' (default 0) maximum number of labelled markers to record 
     %   in file. Markers are recorded independently of rigid bodies, so
@@ -41,6 +43,14 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     %   receive new frames from Motive before displaying a warning and
     %   notifying the 'noData' event.
     %
+    %   'untrackedWarnTreshold' (default 30) the minimum percentage of
+    %   frames for which a rigid body may be untracked before issuing a
+    %   warning.
+    %
+    %   'untrackedWarnInterval' (default 10) the time interval in seconds 
+    %   for checking how many untracked frames each rigid body has 
+    %   accumulated.
+    %
     % --------------------------------------------------------------------
     % STREAMING
     %
@@ -50,6 +60,9 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     % resume.
     %
     % S.FINISH() finishes acquisition and closes the data file.
+    
+    % TODO: replace overly verbose loss-of-tracking warnings with something
+    % more useful
     
     properties (SetAccess = protected, Transient)
         NNClient
@@ -65,8 +78,11 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         writeToFile         (1,1) logical = true
         frameIncrement      (1,1) double {mustBeInteger, mustBePositive} = 1
         writeBufferNFrames  (1,1) double {mustBeInteger, mustBePositive} = 120
+        nRigidBodies        (1,1) double {mustBeInteger, mustBeNonnegative} = 1
         nMarkers            (1,1) double {mustBeInteger, mustBeNonnegative} = 0
         noDataTimeout       (1,1) double {mustBeNonnegative} = 1;
+        untrackedWarnTreshold (1,1) double {mustBeNonnegative} = 30;
+        untrackedWarnInterval (1,1) double {mustBeNonnegative} = 10;
         
         % Misc
         debug               (1,1) logical = false
@@ -87,17 +103,22 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         frameIdx = int32(0);
         lastTrackedFrameIdx
         
+        nUntrackedFramesSinceWarn
+        nTotalFramesSinceWarn = 0;
+        
         % Position variables: each contains the value from the most recent
         % frame
-        x = single(0);
-        y = single(0);
-        z = single(0);
+        rbx
+        rby
+        rbz
+        rbError
+        rbTracked
         
         % Quaternion angles
-        qx = single(0);
-        qy = single(0);
-        qz = single(0);
-        qw = single(0);
+        rbqx
+        rbqy
+        rbqz
+        rbqw
         
         % Marker info (don't initialize here; dims are unknown)
         mx
@@ -105,9 +126,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         mz
         msz
         mres
-        
-        posError = single(0);
-        posTracked = uint8(0);
+
         frameTimestamp = 0;
         frameLatency = single(0)
     end
@@ -120,7 +139,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     
     properties (Constant)
         HEADER_LENGTH = 2^14
-        VERSION = '0.0.3'
+        VERSION = '0.1.0'
     end
     
     properties (SetAccess = protected)
@@ -144,6 +163,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     properties (SetAccess = protected, Transient)
         frameReadyListener
         noDataTimer
+        rbUntrackedTimer
     end
     
     events
@@ -216,6 +236,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             end
             
             start(self.noDataTimer)
+            start(self.rbUntrackedTimer)
             self.streaming = true;
             
             function callback(streamer)
@@ -234,7 +255,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             if ~self.streaming
                 self.logger.w('Not currently streaming. Calling pause() will have no effect!');
             end
-            stop(self.noDataTimer)
+            stop(self.noDataTimer);
+            stop(self.rbUntrackedTimer);
             self.streaming = false;
         end
         
@@ -251,7 +273,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 return;
             end
             
-            stop(self.noDataTimer)
+            stop(self.noDataTimer);
+            stop(self.rbUntrackedTimer);
             
             % finish() may be called after a previous call to finish()
             if self.streamingFinished
@@ -284,6 +307,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             
             self.streaming = false;
             self.streamingFinished = true;
+            self.closeLogFile();
         end
         
         function paths = getFiles(self)
@@ -320,14 +344,6 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         
         function val = get.timeElapsed(self)
             val = self.frameTimestamp - self.firstFrameTimestamp;
-        end
-        
-        function val = get.pos(self)
-            val = [self.x self.y self.z];
-        end
-        
-        function val = get.rot(self)
-            val = [self.qx, self.qy, self.qz, self.qw];
         end
         
     end
@@ -454,11 +470,20 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             % Initialize various streaming variables
             self.writeBufferTmp = zeros(1, self.nBytesPerFrame(), 'uint8');
             
-            self.mx = zeros(self.nMarkers, 1, 'single');
-            self.my = zeros(self.nMarkers, 1, 'single');
-            self.mz = zeros(self.nMarkers, 1, 'single');
-            self.msz = zeros(self.nMarkers, 1, 'single');
-            self.mres = zeros(self.nMarkers, 1, 'single');
+            markerFields = {'mx', 'my', 'mz', 'msz', 'mres'};
+            for f = 1:numel(markerFields)
+                self.(markerFields{f}) = zeros(self.nMarkers, 1, 'single');
+            end
+            
+            rbFields = {'rbx', 'rby', 'rbz', 'rbqx', 'rbqy', 'rbqz', 'rbqw', ...
+                'rbError'};
+            for f = 1:numel(rbFields)
+                self.(rbFields{f}) = zeros(self.nRigidBodies, 1, 'single');
+            end
+            self.rbTracked = zeros(self.nRigidBodies, 1, 'uint8');
+            
+            self.lastTrackedFrameIdx = nan(self.nRigidBodies, 1);
+            self.nUntrackedFramesSinceWarn = zeros(self.nRigidBodies, 1);
             
             % Start a timer that will emit warnings at regular intervals if
             % no frames are received within a user-defined timeout period.
@@ -470,11 +495,32 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 'Period', self.noDataTimeout, ...
                 'StartDelay', self.noDataTimeout, ...
                 'TimerFcn', @(~,~) noDataWarning(self));
+            
+            self.rbUntrackedTimer = timer( ...
+                'ExecutionMode', 'fixedSpacing', ...
+                'Period', self.untrackedWarnInterval, ...
+                'StartDelay', self.untrackedWarnInterval, ...
+                'TimerFcn', @(~,~) rbLostWarning(self));
+            
             self.streamingInitialized = true;
             
             function noDataWarning(streamer)
                 streamer.logger.w('WARNING! No frame data received for %.1g s', streamer.noDataTimeout);
                 streamer.notify('noData');
+            end
+            
+            function rbLostWarning(streamer)
+                nUntracked = streamer.nUntrackedFramesSinceWarn;
+                nTotal = streamer.nTotalFramesSinceWarn;
+                for r = 1:self.nRigidBodies
+                    prcUntracked = nUntracked(r) / nTotal * 100;
+                    if prcUntracked >= self.untrackedWarnTreshold
+                        self.logger.w('Rigid body #%u untracked in %.0f%% of frames during last %.1f seconds', ...
+                            r, prcUntracked, self.untrackedWarnInterval);
+                    end
+                    streamer.nUntrackedFramesSinceWarn(r) = 0;
+                end
+                streamer.nTotalFramesSinceWarn = 0;
             end
             
         end
@@ -510,10 +556,11 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             printprm('file_name', self.fileName)
             printprm('frame_increment', self.frameIncrement, '%u')
             printprm('writebuff_nframes', self.writeBufferNFrames, '%u')
+            printprm('n_rigid_bodies', self.nRigidBodies, '%u')
             printprm('n_markers', self.nMarkers, '%u')
             printprm('simulate', self.simulate, '%u')
             
-            % Fill remaining header allocation with white space
+            % Fill remainder of 16 kb header allocation with white space
             nBytesWritten = ftell(self.fid);
             bytes = repmat(char(32), 1, self.HEADER_LENGTH-nBytesWritten);
             fwrite(self.fid, bytes);
@@ -550,7 +597,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         end
         
         function n = nBytesPerFrame(self)
-            n = matmot.FormatSpec.bytesPerFrame(self.nMarkers);
+            n = matmot.FormatSpec.bytesPerFrame(self.nRigidBodies, self.nMarkers);
         end
         
         function parseInputs(self, varargin)
@@ -560,20 +607,25 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             inp.PartialMatching = false;
             inp.KeepUnmatched = false;
             
-            inp.addParameter('fileName', self.fileName);
-            inp.addParameter('writeToFile', self.writeToFile);
-            inp.addParameter('frameIncrement', self.frameIncrement);
-            inp.addParameter('hostIP', self.hostIP);
-            inp.addParameter('writeBufferNFrames', self.writeBufferNFrames);
-            inp.addParameter('nMarkers', self.nMarkers);
-            inp.addParameter('simulate', self.simulate);
+            prms = {
+                'fileName'
+                'writeToFile'
+                'frameIncrement'
+                'hostIP'
+                'writeBufferNFrames'
+                'nMarkers'
+                'nRigidBodies'
+                'simulate'};
             
+            for p = 1:numel(prms)
+                prm = prms{p};
+                inp.addParameter(prm, self.(prm));
+            end
             inp.parse(varargin{:});
             P = inp.Results;
             
-            fields = fieldnames(P);
-            for f = 1:numel(fields)
-                self.(fields{f}) = P.(fields{f});
+            for p = 1:numel(prms)
+                self.(prms{p}) = P.(prms{p});
             end
             
             % Determine data directory
@@ -608,6 +660,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             % This may be called either within a polling loop, or by a
             % callback triggered on "FrameReady" events
             
+            import matmot.RbEventData
+            
             tic();
             self.logger.v('getFrame()');
             
@@ -619,12 +673,10 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             if self.simulate
                 newFrameIdx = int32(self.nFramesAcquired+1);
                 newFrameTime = (self.nFramesAcquired+1) / self.frameRate;
-                %newFrameLatency = single(rand() * 0.3);
             else
                 frame = self.NNClient.GetLastFrameOfData();
                 newFrameIdx = frame.iFrame;
                 newFrameTime = frame.fTimestamp;
-                %newFrameLatency = frame.fLatency;
             end
             
             newFrame = true;
@@ -667,40 +719,77 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 
                 if self.simulate
                     % Position and angles are random walks
-                    self.x = self.x + randn('single');
-                    self.y = self.y + randn('single');
-                    self.z = self.z + randn('single');
-                    self.qx = mod(self.qx + randn('single'), 2*pi);
-                    self.qy = mod(self.qy + randn('single'), 2*pi);
-                    self.qz = mod(self.qz + randn('single'), 2*pi);
-                    self.qw = mod(self.qw + randn('single'), 2*pi);
-                    self.posError = randn('single');
-                    self.posTracked = uint8(rand() > 0.02);
+                    self.rbx = self.rbx + randn(self.nRigidBodies, 1, 'single');
+                    self.rby = self.rby + randn(self.nRigidBodies, 1, 'single');
+                    self.rbz = self.rbz + randn(self.nRigidBodies, 1, 'single');
+                    self.rbqx = mod(self.rbqx + randn(self.nRigidBodies, 1, 'single'), 2*pi);
+                    self.rbqy = mod(self.rbqy + randn(self.nRigidBodies, 1, 'single'), 2*pi);
+                    self.rbqz = mod(self.rbqz + randn(self.nRigidBodies, 1, 'single'), 2*pi);
+                    self.rbqw = mod(self.rbqw + randn(self.nRigidBodies, 1, 'single'), 2*pi);
+                    self.rbError = randn(self.nRigidBodies, 1, 'single');
+                    self.rbTracked = uint8(rand(self.nRigidBodies, 1) > 0.02);
                     self.mx = self.mx + rand(self.nMarkers, 1, 'single');
                     self.my = self.my + rand(self.nMarkers, 1, 'single');
                     self.mz = self.mz + rand(self.nMarkers, 1, 'single');
                     self.msz = rand(self.nMarkers, 1, 'single');
                     self.mres = rand(self.nMarkers, 1, 'single') * 10e-4;
                 else
-                    rb = frame.RigidBodies(1);
-                    % If no rigid body exists in the current frame, rb may
-                    % be an empty matrix. If so, create a struct with NaN
-                    % fields
-                    if isempty(rb)
-                        rb = struct('x', nan, 'y', nan, 'z', nan, ...
-                            'qx', nan, 'qy', nan, 'qz', nan, 'qw', nan, ...
-                            'posError', nan, 'posTracked', 0, ...
-                            'MeanError', nan, 'Tracked', 0);
+                    
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    % Rigid bodies
+
+                    for r = 1:self.nRigidBodies
+                        rb = frame.RigidBodies(r);
+                        % If no rigid body exists in the current frame, rb may
+                        % be an empty matrix. If so, create a struct with NaN
+                        % fields
+                        if isempty(rb)
+                            rb = struct('rbx', nan, 'rby', nan, 'rbz', nan, ...
+                                'rbqx', nan, 'rbqy', nan, 'rbqz', nan, 'rbqw', nan, ...
+                                'rbError', nan, 'rbTracked', 0, ...
+                                'MeanError', nan, 'Tracked', 0);
+                        end
+                        self.rbx(r) = -rb.x;
+                        self.rby(r) = rb.y;
+                        self.rbz(r) = rb.z;
+                        self.rbqx(r) = rb.qx;
+                        self.rbqy(r) = rb.qy;
+                        self.rbqz(r) = rb.qz;
+                        self.rbqw(r) = rb.qw;
+                        self.rbError(r) = rb.MeanError;
+                        self.rbTracked(r) = uint8(rb.Tracked);
+
+                        % Check if rigid body was successfully tracked. Issue
+                        % warnings whenever it is lost, or on resuming after a lost
+                        % period.
+                        if self.rbTracked(r)
+                            % Check if the last successfully tracked frame was
+                            % the last frame. If not, this means we're resuming
+                            % good tracking after a lost period. Notify the user
+                            % with a warning
+                            if self.lastTrackedFrameIdx(r) ~= self.frameIdx
+                                nUntracked = self.frameIdx - self.lastTrackedFrameIdx(r);
+                                self.logger.d('Rigid body #%u tracking resumed at sample %u, time %.3f, total %u untracked frames', ...
+                                    r, newFrameIdx, newFrameTime, nUntracked);
+                                eventData = RbEventData(r);
+                                self.notify('trackingResumed', eventData);
+                            end
+                            self.lastTrackedFrameIdx(r) = newFrameIdx;
+                        else
+                            if self.lastTrackedFrameIdx(r) == self.frameIdx
+                                eventData = RbEventData(r);
+                                self.notify('trackingLost', eventData);
+                            end
+                            eventData = RbEventData(r);
+                            self.notify('untrackedFrame', eventData);
+                            self.nUntrackedFramesSinceWarn(r) = ...
+                                self.nUntrackedFramesSinceWarn(r)+1;
+                        end
                     end
-                    self.x = -rb.x;
-                    self.y = rb.y;
-                    self.z = rb.z;
-                    self.qx = rb.qx;
-                    self.qy = rb.qy;
-                    self.qz = rb.qz;
-                    self.qw = rb.qw;
-                    self.posError = rb.MeanError;
-                    self.posTracked = uint8(rb.Tracked);
+                    
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    % Markers
+
                     for m = 1:self.nMarkers
                         marker = frame.LabeledMarkers(m);
                         if isempty(marker)
@@ -719,40 +808,14 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                     end
                 end
                 
-                % Check if rigid body was successfully tracked. Issue
-                % warnings whenever it is lost, or on resuming after a lost
-                % period.
-                if self.posTracked
-                    % Check if the last successfully tracked frame was
-                    % the last frame. If not, this means we're resuming
-                    % good tracking after a lost period. Notify the user
-                    % with a warning
-                    if self.lastTrackedFrameIdx ~= self.frameIdx
-                        nUntracked = self.frameIdx - self.lastTrackedFrameIdx;
-                        self.logger.w('Tracking resumed at sample %u, time %.3f, total %u untracked frames', ...
-                            newFrameIdx, newFrameTime, nUntracked);
-                        self.logger.v('Notifying trackingResumed');
-                        self.notify('trackingResumed');
-                    end
-                    self.lastTrackedFrameIdx = newFrameIdx;
-                else
-                    if self.lastTrackedFrameIdx == self.frameIdx
-                        self.logger.w('Rigid body lost at sample %u, time %.3f', newFrameIdx, newFrameTime);
-                        self.logger.v('Notifying trackingLost');
-                        self.notify('trackingLost');
-                    end
-                    self.logger.v('Notifying "untrackedFrame"');
-                    self.notify('untrackedFrame');
-                end
-                
                 self.nFramesAcquired = self.nFramesAcquired+1;
+                self.nTotalFramesSinceWarn = self.nTotalFramesSinceWarn + 1;
                 self.frameIdx = newFrameIdx;
                 self.frameTimestamp = newFrameTime;
-                %self.frameLatency = newFrameLatency;
                 if self.firstFrame, self.firstFrame = false; end
                 
                 self.logger.v('Frame #%u, Pos (m): [%.3f, %.3f, %.3f], Rot (rad): [%.3f %.3f %.3f %.3f]', ...
-                    newFrameIdx, self.x, self.y, self.z, self.qx, self.qy, self.qz, self.qw);
+                    newFrameIdx, self.rbx, self.rby, self.rbz, self.rbqx, self.rbqy, self.rbqz, self.rbqw);
                 
                 if self.writeToFile
                     self.writeBuffer = [ ...
@@ -783,10 +846,19 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             % CURRENTFRAMETOBYTES generate byte array from the current
             % frame of data
             bytes = [ ...
-                typecast(self.frameIdx, 'uint8') ...                                % int32 (4 bytes)
-                typecast(self.frameTimestamp, 'uint8') ...                               % double (8 bytes)
-                typecast([self.frameLatency, self.pos, self.rot, self.posError], 'uint8') ... % single (8*4 bytes)
-                uint8(self.posTracked) ...                                      % logical (1 byte)
+                typecast(self.frameIdx, 'uint8') ...                                    % int32 (4 bytes)
+                typecast(self.frameTimestamp, 'uint8') ...                              % double (8 bytes)
+                typecast([
+                self.frameLatency
+                self.rbx
+                self.rby
+                self.rbz
+                self.rbqx
+                self.rbqy 
+                self.rbqz
+                self.rbqw
+                self.rbError]', 'uint8'), ...  % single (9*4 bytes)
+                uint8(self.rbTracked)', ...% logical (1 byte)
                 typecast([self.mx; self.my; self.mz; self.msz; self.mres], 'uint8')'
                 ];
         end
@@ -855,21 +927,23 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 'fileName'
                 'writeToFile'
                 'frameIncrement'
-                'writeBufferNFrames'
+                'nRigidBodies'
                 'nMarkers'
                 'simulate'
-                'noDataTimeout'}, 'User-defined settings');
+                'noDataTimeout'
+                'untrackedWarnTreshold'
+                'untrackedWarnInterval'}, 'User-defined settings');
             
             props(2) = PropertyGroup({
-                'x'
-                'y'
-                'z'
-                'qx'
-                'qy'
-                'qz'
-                'qw'
-                'posError'
-                'posTracked'
+                'rbx'
+                'rby'
+                'rbz'
+                'rbqx'
+                'rbqy'
+                'rbqz'
+                'rbqw'
+                'rbError'
+                'rbTracked'
                 'frameTimestamp'
                 'frameIdx'}, 'Rigid body data');
             

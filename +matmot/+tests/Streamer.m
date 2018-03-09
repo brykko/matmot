@@ -1,11 +1,14 @@
 classdef Streamer < matlab.unittest.TestCase
     %STREAMER tests, using real or simulated data acquisition
     
+    %TODO add tests for these:
+    % - check CustomDisplay props all exist
+    
     properties (Constant)
         % Enable this parameter to use simulated (randomly generated) data.
         % If disabled, the Streamer will attempt to connect to the NatNet
         % server at localhost.
-        USE_SIMULATION = true;
+        USE_SIMULATION = false;
     end
     
     properties
@@ -60,15 +63,21 @@ classdef Streamer < matlab.unittest.TestCase
         function frameCorrectNBytes(self)
             % Check that the number of encoded bytes from a frame match the
             % expected number
-            streamer = self.createStreamer();
-            streamer.start();
-            pause(0.1);
-            self.assertFalse(isempty(streamer.firstFrameIdx), ...
-                'Streamer has no frame data yet')
-            bytes = streamer.currentFrameToBytes();
-            streamer.finish();
-            self.verifyTrue(numel(bytes)==streamer.nBytesPerFrame, ...
-                'Mismatch between expected and actual number of frame bytes');
+            nRbs = [0, 1, 2];
+            nMarkers = [10, 0, 10];
+            for n = 1:3
+                streamer = self.createStreamer( ...
+                    'nRigidBodies', nRbs(n), ...
+                    'nMarkers', nMarkers(n));
+                streamer.start();
+                pause(0.1);
+                self.assertFalse(isempty(streamer.firstFrameIdx), ...
+                    'Streamer has no frame data yet')
+                bytes = streamer.currentFrameToBytes();
+                streamer.finish();
+                self.verifyTrue(numel(bytes)==streamer.nBytesPerFrame, ...
+                    'Mismatch between expected and actual number of frame bytes');
+            end
         end
         
         function frameCorrectEncodings(self)
@@ -86,20 +95,20 @@ classdef Streamer < matlab.unittest.TestCase
             
             function checkAllFields()
                 import matmot.FormatSpec;
-                fields = [FormatSpec.fields(); FormatSpec.markerFields()];
-                isMarkerField = true(size(fields));
-                isMarkerField(1:numel(FormatSpec.fields())) = false;
+                fields = [
+                    FormatSpec.basicFields()
+                    FormatSpec.rbFields()
+                    FormatSpec.markerFields()];
+                
+                nRows = [
+                    ones(size(FormatSpec.basicFields()))
+                    streamer.nRigidBodies * ones(size(FormatSpec.rbFields()))
+                    streamer.nMarkers * ones(size(FormatSpec.markerFields()))
+                    ];
+                
                 for f = 1:numel(fields)
                     name = fields(f).name;
-                    [encoding, nCols] = FormatSpec.convertEncoding(fields(f).encoding);
-                    if isMarkerField(f)
-                        % For marker fields, the number of columns equals
-                        % the number of markers
-                        nRows = streamer.nMarkers;
-                    else
-                        nRows = 1;
-                    end
-                    
+                    [encoding, nCols] = FormatSpec.convertEncoding(fields(f).encoding);                 
                     val = streamer.(name);
                     
                     % Check that class matches the required encoding
@@ -109,9 +118,9 @@ classdef Streamer < matlab.unittest.TestCase
                     self.verifyTrue(matchClass, msg);
                     
                     % Check the number of columns matches the encoding
-                    matchSize = isequal(size(val), [nRows, nCols]);
+                    matchSize = isequal(size(val), [nRows(f), nCols]);
                     msg = sprintf('Expected field "%s" to contain array of size [%u, %u], but was [%u, %u] instead', ...
-                        name, nRows, nCols, size(val, 1), size(val, 2));
+                        name, nRows(f), nCols, size(val, 1), size(val, 2));
                     self.verifyTrue(matchSize, msg);
                 end
             end
@@ -150,7 +159,9 @@ classdef Streamer < matlab.unittest.TestCase
         
         function dataRead(self)
             
-            fields = matmot.FormatSpec.fields();
+            fields = [
+                matmot.FormatSpec.basicFields()
+                matmot.FormatSpec.rbFields()];
             
             function gatherData()
                 % Append current values of data fields as rows

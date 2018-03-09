@@ -5,7 +5,7 @@ function [data] = loadMtvFile(fileName)
 % specified by FILENAME, return structure DATA. Fields of DATA are as
 % follows:
 %
-%   frameIdx (int32) - Motive frame ID. Frames are counted from when Motive 
+%   frameIdx (int32) - Motive frame ID. Frames are counted from when Motive
 %   was opened.
 %
 %   frameTimestamp (double) - time of Motive frame, relative to when Motive
@@ -49,43 +49,56 @@ if fid == -1
 end
 
 header = fread(fid, [1, Streamer.HEADER_LENGTH], '*char');
-lines = strsplit(header, '\r\n');
-[mat, tok] = regexp(lines, 'n_markers=(\w+).*?', 'match', 'tokens');
-idx = find(~cellfun(@isempty, mat));
-assert(~isempty(idx), ...
-    'importMtv:nMarkersNotFound', ...
-    'Error parsing file header: could not find string "n_markers"')
+fileVersion = getVersion(header);
 
-% Calculate number of bytes per frame
-nMarkers = str2num(tok{idx}{1}{1});
-nBytesBasic = FormatSpec.bytesPerFrame(0);
-nBytesFrame = FormatSpec.bytesPerFrame(nMarkers);
+if fileVersion(2) > 0
+    nRbs = getHeaderField(header, 'n_rigid_bodies');
+else
+    nRbs = 1;
+end
+nMarkers = getHeaderField(header, 'n_markers');
+
+nBytesBasic = FormatSpec.bytesBasic();
+nBytesRb = nRbs * FormatSpec.bytesPerRb();
+nBytesFrame = FormatSpec.bytesPerFrame(nRbs, nMarkers);
 allBytes = fread(fid, [nBytesFrame, inf], '*uint8');
 fclose(fid);
 
 nFrames = size(allBytes, 2);
-fields = FormatSpec.fields();
+basicFields = FormatSpec.basicFields();
+rbFields = FormatSpec.rbFields();
 
-% Cycle through fields and interpret the relevant bytes for field
+% Cycle through rigid body fields and interpret the relevant bytes for field
 % appropriately
-for f = 1:numel(fields)
-    field = fields(f);
+for f = 1:numel(basicFields)
+    field = basicFields(f);
     inds = field.byte_inds + (0 : (field.n_bytes-1));
-    encodingConv = FormatSpec.convertEncoding(fields(f).encoding);
     bytes = allBytes(inds, :);
-    tmp = typecast(bytes(:), encodingConv);
+    tmp = typecast(bytes(:), field.encoding);
     data.(field.name) = reshape(tmp, [], nFrames)';
+end
+
+% Read the rigid bodies
+indField = nBytesBasic + 1;
+for f = 1:numel(rbFields)
+    field = rbFields(f);
+    nBytes = field.n_bytes;
+    for r = 1:nRbs
+        inds = indField + (r-1)*nBytes + (0 : (nBytes-1));
+        bytes = allBytes(inds, :);
+        tmp = typecast(bytes(:), field.encoding);
+        data.(field.name)(:, r) = reshape(tmp, [], nFrames)';
+    end
+    indField = indField + field.n_bytes*nRbs;
 end
 
 % Read the markers
 markerFields = FormatSpec.markerFields();
-%nBytesMarkerField = FormatSpec.markerFieldNBytes;
-indField = nBytesBasic + 1;
+indField = nBytesBasic + nBytesRb + 1;
 for f = 1:numel(markerFields)
     field = markerFields(f);
     encodingConv = FormatSpec.convertEncoding(field.encoding);
     nBytes = field.n_bytes;
-    %indField = nBytesBasic + (f-1)*nBytesMarkerField*nMarkers;
     for m = 1:nMarkers
         inds = indField + (m-1)*nBytes + (0 : (nBytes-1));
         bytes = allBytes(inds, :);
@@ -99,3 +112,31 @@ fprintf('Done.\n');
 
 end
 
+function val = getHeaderField(header, field, fmt)
+
+lines = strsplit(header, '\r\n');
+expr = [field '=(\w+).*?'];
+[mat, tok] = regexp(lines, expr, 'match', 'tokens');
+idx = find(~cellfun(@isempty, mat));
+assert(~isempty(idx), ...
+    'importMtv:headerFieldNotFound', ...
+    'Error parsing file header: could not find string "%s"', field)
+val = tok{idx}{1}{1};
+try
+    % Convert to numeric if possible, otherwise leave as char
+    val = str2num(val);
+end
+
+end
+
+function v = getVersion(header)
+lines = strsplit(header, '\r\n');
+strs = strsplit(lines{1});
+verStr = strs{end};
+verElStr = strsplit(verStr, '.');
+assert(numel(verElStr)==3, 'matmot:loadMtvFile:noFileVersion', ...
+    'Failed to interpret version of .mtv file.');
+for i = 1:3
+    v(i) = str2num(verElStr{i});
+end
+end

@@ -1,0 +1,2 @@
+2018-03-09 v 0.1.0
+-Add multiple rigid body support.
