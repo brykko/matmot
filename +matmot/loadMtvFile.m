@@ -1,8 +1,8 @@
 function [data] = loadMtvFile(fileName)
 %LOADMTVFILE read contents of binary .mtv file from Streamer
 %
-% DATA = LOADMTVFILE(FILENAME) reads the contents of the .DAT file
-% specified by FILENAME, return structure DATA. Fields of DATA are as
+% DATA = LOADMTVFILE(FILENAME) reads the contents of the .mtv file
+% specified by FILENAME, returning structure DATA. Fields of DATA are as
 % follows:
 %
 %   -----------------------------------------------------------------------
