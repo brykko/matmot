@@ -767,9 +767,6 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                             % good tracking after a lost period. Notify the user
                             % with a warning
                             if self.lastTrackedFrameIdx(r) ~= self.frameIdx
-                                nUntracked = self.frameIdx - self.lastTrackedFrameIdx(r);
-                                self.logger.d('Rigid body #%u tracking resumed at sample %u, time %.3f, total %u untracked frames', ...
-                                    r, newFrameIdx, newFrameTime, nUntracked);
                                 eventData = RbEventData(r);
                                 self.notify('trackingResumed', eventData);
                             end
