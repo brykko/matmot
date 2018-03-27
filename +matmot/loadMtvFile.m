@@ -1,39 +1,51 @@
 function [data] = loadMtvFile(fileName)
 %LOADMTVFILE read contents of binary .mtv file from Streamer
 %
-% DATA = LOADMTVFILE(FILENAME) reads the contents of the .DAT file
-% specified by FILENAME, return structure DATA. Fields of DATA are as
+% DATA = LOADMTVFILE(FILENAME) reads the contents of the .mtv file
+% specified by FILENAME, returning structure DATA. Fields of DATA are as
 % follows:
 %
+%   -----------------------------------------------------------------------
+%   FRAME DATA
+%   These fields contain data about the motion capture frame. Each field's
+%   data is a column vector with one element per frame.
+%   
 %   frameIdx (int32) - Motive frame ID. Frames are counted from when Motive
 %   was opened.
 %
 %   frameTimestamp (double) - time of Motive frame, relative to when Motive
 %   was opened.
 %
-%   frameLatency (single) - latency of Motive frame.
+%   frameLatency (single) - latency of Motive frame (not currently used).
 %
-%   pos (single) - [x, y, z] coordinates of rigid body
+%   -----------------------------------------------------------------------
+%   RIGID BODY DATA
+%   These fields contain data about the rigid body objects configured in 
+%   Motive. Each field contains a matrix, with frames in rows and rigid
+%   bodies in columns. The number of columns will equal the value of the
+%   Streamer parameter "nRigidBodies" that was used for acquiring the data.
 %
-%   rot (single) - [qx, qy, qz, qw] quaternion rotations of rigid body
+%   rbx, rby, rbz (single) - position coordinates of rigid body.
 %
-%   posError (single) mean rigid body position error
+%   rbqx, rbqy, rbqz, rbqw (single) - quaternion rotations of rigid body.
+%
+%   posError (single) mean rigid body position error.
 %
 %   posTracked (uint8) rigid body tracking success (1 = tracked, 0 =
 %   untracked)
 %
-%   mx, my, mz (single) - coordinates of labelled markers. These may
-%   include markers included in identified rigid bodies. Each field
-%   contains an nframes-by-nmarkers matrix, where nmarkers is the maximum
-%   number of markers recorded, as set by parameter 'nMarkers' in
-%   Streamer, represented by field "n_markers" in the .mtv file
-%   header.
+%   -----------------------------------------------------------------------
+%   MARKER DATA
+%   These fields contain data about labelled markers. Each field contains a
+%   matrix, with frames in rows and markers in columns. The number of 
+%   columns will equal the value of the Streamer parameter "nMarkers" used 
+%   for acquiring the data.
 %
-%   msz (single) - size of labelled markers. Format is the same as for mx,
-%   my, mz.
+%   mx, my, mz (single) - coordinates of labelled markers.
 %
-%   mres (single) - residuals of labelled markers. Format is the same as
-%   for mx, my, mz.
+%   msz (single) - size of labelled markers.
+%
+%   mres (single) - residuals of labelled markers.
 
 import matmot.Streamer
 import matmot.FormatSpec
