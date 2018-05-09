@@ -34,14 +34,20 @@ function [inds, times, data] = extractSyncPulses(filepath, varargin)
 %
 %   'nLedsMax' (integer, default 4) the maximum number of LEDs to look for.
 %       This should be equal to the number of LEDs used in the recording.
+%
+%   'validPositionRange' (3-element cell array, default 
+%       {[-5, 5], [-5, 5], [-5, 5]} ) x, y, z coordinates of the limits for
+%       valid positions. If any marker positions are outside this range,
+%       they will be set to NaN and will not be registered.
 
 inp = inputParser();
 inp.addParameter('plot', false);
 inp.addParameter('figure', []);
-inp.addParameter('nCheck', 10);
+inp.addParameter('nCheck', 50);
 inp.addParameter('voxelCorrThreshold', 0.9);
 inp.addParameter('nLedsMin', 2);
 inp.addParameter('nLedsMax', 4);
+inp.addParameter('validPositionRange', {[-5 5], [-5 5], [-5 5]});
 inp.parse(varargin{:});
 P = inp.Results;
 
@@ -57,14 +63,21 @@ end
 
 data = matmot.loadMtvFile(filepath);
 
-% Calculate voxel/pixel-occupancy
-mx = data.mx(:);
-my = data.my(:);
-mz = data.mz(:);
+% Concatenate all marker positions and generate 3D histogram to determine
+% where the highest-occupancy voxels are. Discard any spurious positions
+% that lie outside the valid range.
 mPos = {data.mx, data.my, data.mz};
+for n = 1:3
+    tmp = mPos{n};
+    rng = P.validPositionRange{n};
+    validPos = tmp >= rng(1) & tmp <= rng(2);
+    tmp(~validPos) = nan;
+    mPos{n} = tmp;
+end
+    
 nSamples = size(data.mx, 1);
-
-[histCounts, histEdges, histCenters] = matmot.external.histcn([mx, my, mz]);
+[histCounts, histEdges, histCenters] = matmot.external.histcn( ...
+    [mPos{1}(:), mPos{2}(:), mPos{3}(:)]);
 histCounts2d = squeeze(sum(histCounts, 2));
 
 if P.plot
@@ -193,20 +206,22 @@ for n = 1:nLedVoxels
         ledVoxelCoords(n, 3));
 end
 fprintf('\n\n');
+
 if P.plot
+   clear h
    ax = subplot(sply, splx, 5, 'color', 'k');
    pts = ledVoxelCoords([1:end, 1], :);
-   line(ax, pts(:, 1), pts(:, 2), pts(:, 3), 'marker', '.', 'markerSize', 20, ...
+   h(1) = line(ax, pts(:, 1), pts(:, 2), pts(:, 3), 'marker', 'o', 'markerSize', 5, ...
        'color', 'r', 'lineStyle', 'none');
-   pts = data.pos;
-   % Plot the rigid body path. Need to reverse x-direction to make it match
-   % marker coords (is this correct?)
-   line(ax, -pts(:, 1), pts(:, 2), pts(:, 3), 'color', 'w', 'lineWidth', 0.5);
+   % Plot the rigid body path
+   h(2) = line(ax, data.rbx, data.rby, data.rbz, 'color', 'w', 'lineWidth', 0.5);
    axis(ax, 'equal');
    xlabel(ax, 'x');
    ylabel(ax, 'y');
    zlabel(ax, 'z');
    title(ax, 'Identified LED voxel locations');
+   axis(ax, 'equal');
+   rotate3d(ax);
 end
 
 pulseStates = any(voxelOccupancies(:, ledVoxelInds), 2);
@@ -239,6 +254,12 @@ fprintf('Median pulse length = %.1f ms, median interpulse interval = %.1f ms\n',
 end
 
 function v = anyMarkerInBin(binEdges, binIdx, positions)
-    bin = binEdges(binIdx + [0, 1]);
-    v = any(positions > bin(1) & positions <= bin(2), 2);
+    nBins = numel(binEdges);
+    if binIdx < nBins
+        bin = binEdges(binIdx + [0, 1]);
+        v = positions > bin(1) & positions <= bin(2);
+    else
+        v = positions == binEdges(end);
+    end
+    v = any(v, 2);
 end
