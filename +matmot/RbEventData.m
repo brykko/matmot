@@ -3,8 +3,8 @@ classdef RbEventData < event.EventData
     %
     % This subclass of EventData adds the "rigidBodyId" property which
     % allows event listeners to access the identity of the rigid body the
-    % event refers to. The ID is the index of the rigid body (1-based) as
-    % broadcast by Motive and received by the NatNet client.
+    % event refers to. The streaming ID of a rigid body is configured in
+    % Motive.
     
     properties
         rigidBodyId

@@ -85,6 +85,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         untrackedWarnInterval (1,1) double {mustBeNonnegative} = 10;
         
         % Misc
+        quiet               (1,1) logical = false
+        handlers
         debug               (1,1) logical = false
         simulate            (1,1) logical = false
     end
@@ -138,7 +140,6 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     end
     
     properties (Constant)
-        HEADER_LENGTH = 2^14
         VERSION = '0.1.0'
     end
     
@@ -273,8 +274,13 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 return;
             end
             
-            stop(self.noDataTimer);
-            stop(self.rbUntrackedTimer);
+            if isvalid(self.noDataTimer)
+                stop(self.noDataTimer);
+            end
+            
+            if isvalid(self.rbUntrackedTimer)
+                stop(self.rbUntrackedTimer);
+            end
             
             % finish() may be called after a previous call to finish()
             if self.streamingFinished
@@ -365,16 +371,23 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             logger.level = Level.DEBUG;
             
             % Set up the handlers
-            handler = logging.ConsoleHandler();
-            handler.useColors = false;
-            handler.level = Level.INFO;
-            logger.addHandler(handler);
+            if ~self.quiet
+                handler = logging.ConsoleHandler();
+                handler.useColors = false;
+                handler.level = Level.INFO;
+                logger.addHandler(handler);
+            end
             
             filePath = self.getFiles().log;
             handler = logging.FileHandler(filePath, false);
             handler.level = Level.DEBUG;
             handler.logger.level = Level.DEBUG;
             logger.addHandler(handler);
+            
+            % Add any extra handlers
+            for n = 1:numel(self.handlers)
+                logger.addHandler(self.handlers{n});
+            end
             
             lg = @(varargin) logger.i(varargin{:});
             lg('New Streamer session, date %s, user "%s", PC "%s"', ...
@@ -431,7 +444,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 if result == 0
                     self.logger.d('NatNet initialization successful!')
                 else
-                    msg = 'NatNet initialization Failed';
+                    msg = 'NatNet initialization Failed. Check that Motive is running in "multicast" streaming mode.';
                     self.logger.f(msg);
                     error(msg);
                 end
@@ -532,6 +545,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 self.finish();
             end
             delete(self.noDataTimer);
+            delete(self.rbUntrackedTimer);
             self.closeClient();
             self.closeOutputFile();
             self.closeLogFile();
@@ -562,7 +576,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             
             % Fill remainder of 16 kb header allocation with white space
             nBytesWritten = ftell(self.fid);
-            bytes = repmat(char(32), 1, self.HEADER_LENGTH-nBytesWritten);
+            headerLen = matmot.FormatSpec.HEADER_LENGTH;
+            bytes = repmat(char(32), 1, headerLen-nBytesWritten);
             fwrite(self.fid, bytes);
             
         end
@@ -615,7 +630,9 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 'writeBufferNFrames'
                 'nMarkers'
                 'nRigidBodies'
-                'simulate'};
+                'simulate'
+                'handlers'
+                'quiet'};
             
             for p = 1:numel(prms)
                 prm = prms{p};

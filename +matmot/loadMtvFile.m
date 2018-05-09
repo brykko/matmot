@@ -60,7 +60,7 @@ if fid == -1
     error('Could not open file %s: message "%s"', fpth, msg);
 end
 
-header = fread(fid, [1, Streamer.HEADER_LENGTH], '*char');
+header = fread(fid, [1, FormatSpec.HEADER_LENGTH], '*char');
 fileVersion = getVersion(header);
 
 if fileVersion(2) > 0

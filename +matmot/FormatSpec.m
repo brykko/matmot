@@ -49,6 +49,8 @@ classdef FormatSpec < handle
             'single'
             'single'}
         
+        HEADER_LENGTH = 2^14
+        
     end
     
     methods (Static)

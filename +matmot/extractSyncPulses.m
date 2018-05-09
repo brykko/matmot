@@ -1,4 +1,4 @@
-function [inds, times, data] = extractSyncPulses(filepath, varargin)
+function [events, data] = extractSyncPulses(filepath, varargin)
 %EXTRACTSYNCPULSES extracts IR-LED sync pulse times from Motive data
 %
 %   This function can be used to detect the locations and pulse times of a
@@ -7,7 +7,7 @@ function [inds, times, data] = extractSyncPulses(filepath, varargin)
 %   correlations of voxel occupancies to detect which voxels the LEDs are
 %   located in.
 %
-%   [INDS, TIMES] = EXTRACTSYNCPULSES(FILEPATH) processes the file
+%   [EVENTS, TIMES] = EXTRACTSYNCPULSES(FILEPATH) processes the file
 %   containing streamed Motive data specified by FILEPATH. The returned
 %   variables INDS and TIMES are two-column matrices indicating the pulse 
 %   onset and offset frame indices and times, respectively.
@@ -45,8 +45,9 @@ inp.addParameter('plot', false);
 inp.addParameter('figure', []);
 inp.addParameter('nCheck', 50);
 inp.addParameter('voxelCorrThreshold', 0.9);
-inp.addParameter('nLedsMin', 2);
+inp.addParameter('nLedsMin', 3);
 inp.addParameter('nLedsMax', 4);
+inp.addParameter('ledMinPercentOccupancy', 20);
 inp.addParameter('validPositionRange', {[-5 5], [-5 5], [-5 5]});
 inp.parse(varargin{:});
 P = inp.Results;
@@ -62,6 +63,7 @@ if P.plot
 end
 
 data = matmot.loadMtvFile(filepath);
+nFrames = size(data.rbx, 1);
 
 % Concatenate all marker positions and generate 3D histogram to determine
 % where the highest-occupancy voxels are. Discard any spurious positions
@@ -125,11 +127,11 @@ voxelOccupancies = false(nSamples, P.nCheck);
 
 for b = 1:P.nCheck
     % Get the edges of the current voxel
-    [idx(1), idx(2), idx(3)] = ind2sub(size(histCounts), indsSort(b));
-    hiOccupancyVoxelInds(b, :) = idx;
+    [inds(1), inds(2), inds(3)] = ind2sub(size(histCounts), indsSort(b));
+    hiOccupancyVoxelInds(b, :) = inds;
     inBin = true(nSamples, 1);
     for dim = 1:3
-        inBin = inBin & anyMarkerInBin(histEdges{dim}, idx(dim), mPos{dim});
+        inBin = inBin & anyMarkerInBin(histEdges{dim}, inds(dim), mPos{dim});
     end
     if P.plot
         x = data.frameTimestamp;
@@ -139,7 +141,13 @@ for b = 1:P.nCheck
     voxelOccupancies(:, b) = inBin;
 end
 
+voxelPercentOccupancies = 100 * sum(voxelOccupancies) / nFrames;
+validVoxels = voxelPercentOccupancies >= P.ledMinPercentOccupancy;
+hiOccupancyVoxelInds = hiOccupancyVoxelInds(validVoxels, :);
+voxelOccupancies = voxelOccupancies(:, validVoxels);
 r = corr(voxelOccupancies);
+nCheck = numel(find(validVoxels));
+
 if P.plot
     ax = subplot(sply, splx, 4, 'parent', fig);
     imagesc(ax, r);
@@ -156,8 +164,10 @@ end
 foundLedVoxels = false;
 
 for n = P.nLedsMax : -1 : P.nLedsMin
-    combs = nchoosek(1:P.nCheck, n);
+    combs = nchoosek(1:nCheck, n);
     nCombs = size(combs, 1);
+%     maxCorr = zeros(nCombs, 1);
+    minCorr = zeros(nCombs, 1);
     for c = 1:nCombs
         % Get the subset of voxels
         comb = combs(c, :);
@@ -165,14 +175,19 @@ for n = P.nLedsMax : -1 : P.nLedsMin
         combsr = nchoosek(1:n, 2);
         i = comb(combsr(:, 1));
         j = comb(combsr(:, 2));
-        idx = sub2ind(size(r), i, j);
+        inds = sub2ind(size(r), i, j);
         % Get the minimum correlation between any pair
-        minCorr = min(r(idx));
+%         maxCorr(c) = max(r(inds));
+        minCorr(c) = min(r(inds));
+    end
     
         % As soon as all pairs are correlated above the threshold, assume
         % these voxels all contain the LEDs.
-        if minCorr > P.voxelCorrThreshold
+        if any(minCorr > P.voxelCorrThreshold)
             foundLedVoxels = true;
+            [~, idx] = max(minCorr);
+            comb = combs(idx, :);
+            bestMinCorr = minCorr(idx);
             ledVoxelInds = comb;
             nLedVoxels = numel(comb);
             for nn = 1:n
@@ -183,7 +198,6 @@ for n = P.nLedsMax : -1 : P.nLedsMin
             end
             break;
         end
-    end
     
     if foundLedVoxels
         break;
@@ -197,7 +211,7 @@ if ~foundLedVoxels
 end
 
 fprintf('Found %u voxels with minimum r = %.2f\n\n', ...
-    nLedVoxels, minCorr);
+    nLedVoxels, bestMinCorr);
 fprintf('LED voxel coordinates (x, y, z):\n');
 for n = 1:nLedVoxels
     fprintf('(%.3f, %.3f, %.3f), ', ...
@@ -227,27 +241,31 @@ end
 pulseStates = any(voxelOccupancies(:, ledVoxelInds), 2);
 
 % Extract the pulse onset and offset times
-p1 = pulseStates(2:end);
-p0 = pulseStates(1:end-1);
-isU = [false; p1 & ~p0];
-isD = [false; ~p1 & p0];
+events = detectEvents(pulseStates, data.frameTimestamp);
+% p1 = pulseStates(2:end);
+% p0 = pulseStates(1:end-1);
+% isU = [false; p1 & ~p0];
+% isD = [false; ~p1 & p0];
+% 
+% iU = find(isU);
+% iD = find(isD);
+% 
+% if iU(1) > iD(1)
+%     iD(1) = [];
+% end
+% 
+% if iU(end) > iD(end)
+%     iU(end) = [];
+% end
 
-iU = find(isU);
-iD = find(isD);
+% inds = [[events.start]' [events.stop]'];
 
-if iU(1) > iD(1)
-    iD(1) = [];
-end
-
-if iU(end) > iD(end)
-    iU(end) = [];
-end
-
-inds = [iU iD];
-times = data.frameTimestamp(inds);
-
-pulseLen = diff(times, [], 2);
-pulseInterval = times(2:end, 1) - times(1:end-1, 2);
+% Convert frame indices to times (only for verbose feedback)
+% times = data.frameTimestamp(inds);
+% pulseLen = diff(times, [], 2);
+pulseLen = [events.tStop]-[events.tStart];
+pulseInterval = [events(2:end).tStart] - [events(1:end-1).tStop];
+% pulseInterval = times(2:end, 1) - times(1:end-1, 2);
 fprintf('Median pulse length = %.1f ms, median interpulse interval = %.1f ms\n', ...
     median(pulseLen)*1e3, median(pulseInterval)*1e3);
 
