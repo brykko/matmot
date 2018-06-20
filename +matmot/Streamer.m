@@ -80,9 +80,12 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         writeBufferNFrames  (1,1) double {mustBeInteger, mustBePositive} = 120
         nRigidBodies        (1,1) double {mustBeInteger, mustBeNonnegative} = 1
         nMarkers            (1,1) double {mustBeInteger, mustBeNonnegative} = 0
-        noDataTimeout       (1,1) double {mustBeNonnegative} = 1;
-        untrackedWarnTreshold (1,1) double {mustBeNonnegative} = 30;
-        untrackedWarnInterval (1,1) double {mustBeNonnegative} = 10;
+        noDataTimeout       (1,1) double {mustBeNonnegative} = 1
+        
+        % Warnings
+        warnInterval (1,1) double {mustBeNonnegative} = 10
+        untrackedWarnThreshold (1,1) double {mustBeNonnegative} = 30
+        droppedWarnThreshold (1,1) double {mustBeNonnegative} = 5
         
         % Misc
         quiet               (1,1) logical = false
@@ -94,42 +97,42 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     properties (SetAccess = protected)
         % Aqcuisition results
         frameRate
-        nFramesAcquired = 0;
-        nFramesDropped = 0;
-        nFramesInBuffer = 0;
+        nFramesAcquired = 0
+        nFramesDropped = 0
+        nFramesInBuffer = 0
         
         meanGetFrameTime
-        firstFrame = true;
+        firstFrame = true
         firstFrameIdx
-        firstFrameTimestamp = 0;
-        frameIdx = int32(0);
+        firstFrameTimestamp = 0
+        frameIdx = int32(0)
         lastTrackedFrameIdx
         
-        nUntrackedFramesSinceWarn
-        nTotalFramesSinceWarn = 0;
+        nUntrackedFramesSinceWarn = 0
+        nDroppedFramesSinceWarn = 0
+        nTotalFramesSinceWarn = 0
         
-        % Position variables: each contains the value from the most recent
-        % frame
+        % Position data
         rbx
         rby
         rbz
         rbError
         rbTracked
         
-        % Quaternion angles
+        % Quaternion angle data
         rbqx
         rbqy
         rbqz
         rbqw
         
-        % Marker info (don't initialize here; dims are unknown)
+        % Marker data
         mx
         my
         mz
         msz
         mres
 
-        frameTimestamp = 0;
+        frameTimestamp = 0
         frameLatency = single(0)
     end
     
@@ -164,7 +167,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
     properties (SetAccess = protected, Transient)
         frameReadyListener
         noDataTimer
-        rbUntrackedTimer
+        warnTimer
     end
     
     events
@@ -236,8 +239,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 end
             end
             
-            start(self.noDataTimer)
-            start(self.rbUntrackedTimer)
+            start(self.noDataTimer);
+            start(self.warnTimer);
             self.streaming = true;
             
             function callback(streamer)
@@ -257,7 +260,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 self.logger.w('Not currently streaming. Calling pause() will have no effect!');
             end
             stop(self.noDataTimer);
-            stop(self.rbUntrackedTimer);
+            stop(self.warnTimer);
             self.streaming = false;
         end
         
@@ -278,8 +281,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 stop(self.noDataTimer);
             end
             
-            if isvalid(self.rbUntrackedTimer)
-                stop(self.rbUntrackedTimer);
+            if isvalid(self.warnTimer)
+                stop(self.warnTimer);
             end
             
             % finish() may be called after a previous call to finish()
@@ -389,12 +392,11 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 logger.addHandler(self.handlers{n});
             end
             
-            lg = @(varargin) logger.i(varargin{:});
-            lg('New Streamer session, date %s, user "%s", PC "%s"', ...
+            logger.i('New Streamer session, date %s, user "%s", PC "%s"', ...
                 datestr(now, 'dd/mm/yyyy'), getenv('username'), getenv('computername'));
+            logger.v('Logging intitialization complete');
             
             self.logger = logger;
-            logger.v('Logging intitialization complete');
         end
         
         function initializeClient(self)
@@ -442,7 +444,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 result = client.Initialize(ip, ip); % Flg = returnCode: 0 = Success
                 
                 if result == 0
-                    self.logger.d('NatNet initialization successful!')
+                    self.logger.d('NatNet initialization successful!');
                 else
                     msg = 'NatNet initialization Failed. Check that Motive is running in "multicast" streaming mode.';
                     self.logger.f(msg);
@@ -509,11 +511,11 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 'StartDelay', self.noDataTimeout, ...
                 'TimerFcn', @(~,~) noDataWarning(self));
             
-            self.rbUntrackedTimer = timer( ...
+            self.warnTimer = timer( ...
                 'ExecutionMode', 'fixedSpacing', ...
-                'Period', self.untrackedWarnInterval, ...
-                'StartDelay', self.untrackedWarnInterval, ...
-                'TimerFcn', @(~,~) rbLostWarning(self));
+                'Period', self.warnInterval, ...
+                'StartDelay', self.warnInterval, ...
+                'TimerFcn', @(~,~) warnTimerCallback(self));
             
             self.streamingInitialized = true;
             
@@ -522,17 +524,30 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 streamer.notify('noData');
             end
             
-            function rbLostWarning(streamer)
+            function warnTimerCallback(streamer)
+                
+                % Untracked frames
                 nUntracked = streamer.nUntrackedFramesSinceWarn;
                 nTotal = streamer.nTotalFramesSinceWarn;
-                for r = 1:self.nRigidBodies
+                for r = 1:streamer.nRigidBodies
                     prcUntracked = nUntracked(r) / nTotal * 100;
-                    if prcUntracked >= self.untrackedWarnTreshold
-                        self.logger.w('Rigid body #%u untracked in %.0f%% of frames during last %.1f seconds', ...
-                            r, prcUntracked, self.untrackedWarnInterval);
+                    if prcUntracked >= self.untrackedWarnThreshold
+                        streamer.logger.w('Rigid body #%u untracked in %.1f%% of frames during last %.1f seconds', ...
+                            r, prcUntracked, self.warnInteral);
                     end
                     streamer.nUntrackedFramesSinceWarn(r) = 0;
                 end
+                
+                % Dropped frames
+                nDropped = streamer.nDroppedFramesSinceWarn;
+                nTotal = streamer.nTotalFramesSinceWarn;
+                prcDropped = nDropped / nTotal * 100;
+                if prcDropped >= streamer.droppedWarnThreshold
+                    streamer.logger.w('%.1f%% of frames dropped during last %.1f seconds', ...
+                        prcDropped, streamer.warnInterval);
+                end
+                streamer.nDroppedFramesSinceWarn = 0;
+                
                 streamer.nTotalFramesSinceWarn = 0;
             end
             
@@ -545,7 +560,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 self.finish();
             end
             delete(self.noDataTimer);
-            delete(self.rbUntrackedTimer);
+            delete(self.warnTimer);
             self.closeClient();
             self.closeOutputFile();
             self.closeLogFile();
@@ -704,9 +719,9 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 if(frameInc > self.frameIncrement) && ~self.firstFrame
                     nDropped = frameInc - self.frameIncrement;
                     self.nFramesDropped = self.nFramesDropped + nDropped;
-                    self.logger.w('Dropped Frame(s) : %d\tLastIdx : %u\tThisIdx : %u', ...
+                    self.nDroppedFramesSinceWarn = self.nDroppedFramesSinceWarn+1;
+                    self.logger.v('Dropped Frame(s) : %d\tLastIdx : %u\tThisIdx : %u', ...
                         nDropped, self.frameIdx, newFrameIdx);
-                    self.logger.v('Notifying "droppedFrame"');
                     self.notify('droppedFrame');
                     
                     % Check for duplicate frame
@@ -716,11 +731,11 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                     self.notify('duplicateFrame');
                     self.logger.v('Duplicate frame detected, ID = ', newFrameIdx);
                 end
+                self.nTotalFramesSinceWarn = self.nTotalFramesSinceWarn + 1;
             end
             
             if newFrame
                 
-                self.logger.v('Notifying "pregetFrame"');
                 self.notify('preGetFrame');
                 self.logger.v('New frame detected, ID = ', newFrameIdx);
                 
@@ -822,7 +837,6 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 end
                 
                 self.nFramesAcquired = self.nFramesAcquired+1;
-                self.nTotalFramesSinceWarn = self.nTotalFramesSinceWarn + 1;
                 self.frameIdx = newFrameIdx;
                 self.frameTimestamp = newFrameTime;
                 if self.firstFrame, self.firstFrame = false; end

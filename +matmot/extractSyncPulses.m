@@ -48,6 +48,7 @@ inp.addParameter('voxelCorrThreshold', 0.9);
 inp.addParameter('nLedsMin', 3);
 inp.addParameter('nLedsMax', 4);
 inp.addParameter('ledMinPercentOccupancy', 20);
+inp.addParameter('ledMaxPercentOccupancy', 60);
 inp.addParameter('validPositionRange', {[-5 5], [-5 5], [-5 5]});
 inp.parse(varargin{:});
 P = inp.Results;
@@ -166,7 +167,6 @@ foundLedVoxels = false;
 for n = P.nLedsMax : -1 : P.nLedsMin
     combs = nchoosek(1:nCheck, n);
     nCombs = size(combs, 1);
-%     maxCorr = zeros(nCombs, 1);
     minCorr = zeros(nCombs, 1);
     for c = 1:nCombs
         % Get the subset of voxels
@@ -178,7 +178,12 @@ for n = P.nLedsMax : -1 : P.nLedsMin
         inds = sub2ind(size(r), i, j);
         % Get the minimum correlation between any pair
 %         maxCorr(c) = max(r(inds));
-        minCorr(c) = min(r(inds));
+        rtmp = r(inds);
+        if any(isnan(rtmp))
+            minCorr(c) = nan;
+        else
+            minCorr(c) = min(rtmp);
+        end
     end
     
         % As soon as all pairs are correlated above the threshold, assume
@@ -242,30 +247,8 @@ pulseStates = any(voxelOccupancies(:, ledVoxelInds), 2);
 
 % Extract the pulse onset and offset times
 events = detectEvents(pulseStates, data.frameTimestamp);
-% p1 = pulseStates(2:end);
-% p0 = pulseStates(1:end-1);
-% isU = [false; p1 & ~p0];
-% isD = [false; ~p1 & p0];
-% 
-% iU = find(isU);
-% iD = find(isD);
-% 
-% if iU(1) > iD(1)
-%     iD(1) = [];
-% end
-% 
-% if iU(end) > iD(end)
-%     iU(end) = [];
-% end
-
-% inds = [[events.start]' [events.stop]'];
-
-% Convert frame indices to times (only for verbose feedback)
-% times = data.frameTimestamp(inds);
-% pulseLen = diff(times, [], 2);
 pulseLen = [events.tStop]-[events.tStart];
 pulseInterval = [events(2:end).tStart] - [events(1:end-1).tStop];
-% pulseInterval = times(2:end, 1) - times(1:end-1, 2);
 fprintf('Median pulse length = %.1f ms, median interpulse interval = %.1f ms\n', ...
     median(pulseLen)*1e3, median(pulseInterval)*1e3);
 

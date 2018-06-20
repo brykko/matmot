@@ -120,8 +120,6 @@ for f = 1:numel(markerFields)
     indField = indField + field.n_bytes*nMarkers;
 end
 
-fprintf('Done.\n');
-
 end
 
 function val = getHeaderField(header, field, fmt)
