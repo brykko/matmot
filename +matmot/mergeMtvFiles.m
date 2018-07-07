@@ -36,33 +36,33 @@ fidSum = fopen(filepathSum, 'w');
 fidIn = fopen(filenames{1}, 'r');
 
 try
-
-headerBytes = fread(fidIn, FormatSpec.HEADER_LENGTH, '*uint8');
-fwrite(fidOut, headerBytes);
-fclose(fidIn);
-
-for f = 1:nFiles
-    fn = filenames{f};
-    fprintf('Writing file "%s"...\n', fn);
-    fidIn = fopen(fn, 'r');
-    fseek(fidIn, FormatSpec.HEADER_LENGTH, 'bof');
-    nBytesData = 0;
-    while ~feof(fidIn)
-        bytes = fread(fidIn, CHUNK_SIZE, '*uint8');
-        fwrite(fidOut, bytes);
-        nBytesData = nBytesData+numel(bytes);
-    end
+    
+    headerBytes = fread(fidIn, FormatSpec.HEADER_LENGTH, '*uint8');
+    fwrite(fidOut, headerBytes);
     fclose(fidIn);
-    fprintf(fidSum, 'file_index=%u, n_bytes=%u, path="%s"\r\n', ...
-                f, nBytesData, filenames{f});
-end
-
-fclose(fidOut);
-fclose(fidSum);
-fprintf('All files written.\n');
-succeeded = true;
-msg = '';
-
+    
+    for f = 1:nFiles
+        fn = filenames{f};
+        fprintf('Writing file "%s"...\n', fn);
+        fidIn = fopen(fn, 'r');
+        fseek(fidIn, FormatSpec.HEADER_LENGTH, 'bof');
+        nBytesData = 0;
+        while ~feof(fidIn)
+            bytes = fread(fidIn, CHUNK_SIZE, '*uint8');
+            fwrite(fidOut, bytes);
+            nBytesData = nBytesData + numel(bytes);
+        end
+        fclose(fidIn);
+        fprintf(fidSum, 'file_index=%u, n_bytes=%u, path="%s"\r\n', ...
+            f, nBytesData, filenames{f});
+    end
+    
+    fclose(fidOut);
+    fclose(fidSum);
+    fprintf('All files written.\n');
+    succeeded = true;
+    msg = '';
+    
 catch e
     % If anything fails, close everything and about, reporting failure
     warning('Merging files failed: "%s". Aborting.', e.message);
@@ -76,5 +76,5 @@ catch e
     succeeded = false;
     msg = e.message;
 end
-    
+
 end
