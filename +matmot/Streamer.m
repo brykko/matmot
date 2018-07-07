@@ -473,7 +473,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             % Open output file
             filePath = self.getFiles().data;
             self.logger.v('Opening output data file %s', filePath);
-            [self.fid, message] = fopen(filePath, 'w');
+            [self.fid, message] = fopen(filePath, 'W');
             if self.fid == -1
                 msg = sprintf('Failed to open output file %s, message "%s"', filePath, message);
                 self.logger.f('%s', msg);
@@ -881,7 +881,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 self.rby
                 self.rbz
                 self.rbqx
-                self.rbqy 
+                self.rbqy
                 self.rbqz
                 self.rbqw
                 self.rbError]', 'uint8'), ...  % single (9*4 bytes)
