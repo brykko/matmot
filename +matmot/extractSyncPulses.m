@@ -7,10 +7,9 @@ function [events, data] = extractSyncPulses(filepath, varargin)
 %   correlations of voxel occupancies to detect which voxels the LEDs are
 %   located in.
 %
-%   [EVENTS, TIMES] = EXTRACTSYNCPULSES(FILEPATH) processes the file
+%   [EVENTS, DATA] = EXTRACTSYNCPULSES(FILEPATH) processes the file
 %   containing streamed Motive data specified by FILEPATH. The returned
-%   variables INDS and TIMES are two-column matrices indicating the pulse 
-%   onset and offset frame indices and times, respectively.
+%   variables EVENTS is a struct array with fields 'index' and 'time'
 %
 %   [...] = EXTRACTSYNCPULSES(FILEPATH, PRM, VAL, ...) specifies optional 
 %   parameter/value pairs. Available parameters are as follows:
@@ -50,6 +49,9 @@ inp.addParameter('nLedsMax', 4);
 inp.addParameter('ledMinPercentOccupancy', 20);
 inp.addParameter('ledMaxPercentOccupancy', 60);
 inp.addParameter('validPositionRange', {[-5 5], [-5 5], [-5 5]});
+inp.addParameter('timeRange', [0 inf]);
+inp.addParameter('nBins', 20);
+
 inp.parse(varargin{:});
 P = inp.Results;
 
@@ -64,23 +66,26 @@ if P.plot
 end
 
 data = matmot.loadMtvFile(filepath);
-nFrames = size(data.rbx, 1);
+t = data.frameTimestamp;
+inTimeRange = t >= P.timeRange(1) & t <= P.timeRange(2);
+iFirstFrameInTimeRange = find(inTimeRange, 1);
+tFirstFrameInTimeRange = t(iFirstFrameInTimeRange);
+nFrames = numel(find(inTimeRange));
 
 % Concatenate all marker positions and generate 3D histogram to determine
 % where the highest-occupancy voxels are. Discard any spurious positions
 % that lie outside the valid range.
 mPos = {data.mx, data.my, data.mz};
 for n = 1:3
-    tmp = mPos{n};
+    tmp = mPos{n}(inTimeRange, :);
     rng = P.validPositionRange{n};
     validPos = tmp >= rng(1) & tmp <= rng(2);
     tmp(~validPos) = nan;
     mPos{n} = tmp;
 end
-    
-nSamples = size(data.mx, 1);
+
 [histCounts, histEdges, histCenters] = matmot.external.histcn( ...
-    [mPos{1}(:), mPos{2}(:), mPos{3}(:)]);
+    [mPos{1}(:), mPos{2}(:), mPos{3}(:)], P.nBins);
 histCounts2d = squeeze(sum(histCounts, 2));
 
 if P.plot
@@ -124,18 +129,18 @@ if P.plot
     ax.XLim = data.frameTimestamp([1, end]);
 end
 
-voxelOccupancies = false(nSamples, P.nCheck);
+voxelOccupancies = false(nFrames, P.nCheck);
 
 for b = 1:P.nCheck
     % Get the edges of the current voxel
     [inds(1), inds(2), inds(3)] = ind2sub(size(histCounts), indsSort(b));
     hiOccupancyVoxelInds(b, :) = inds;
-    inBin = true(nSamples, 1);
+    inBin = true(nFrames, 1);
     for dim = 1:3
         inBin = inBin & anyMarkerInBin(histEdges{dim}, inds(dim), mPos{dim});
     end
     if P.plot
-        x = data.frameTimestamp;
+        x = data.frameTimestamp(inTimeRange);
         y = inBin/2 + b;
         line(ax, x, y, 'color', 'k');
     end
@@ -156,6 +161,7 @@ if P.plot
     ax.YTick = 1:P.nCheck;
     colormap(ax, hot());
     cb = colorbar(ax);
+    ax.CLim = [0 1];
     ylabel(cb, 'r');
     axis(ax, 'image');
     title(ax, 'Voxel occupancy correlation')
@@ -177,7 +183,6 @@ for n = P.nLedsMax : -1 : P.nLedsMin
         j = comb(combsr(:, 2));
         inds = sub2ind(size(r), i, j);
         % Get the minimum correlation between any pair
-%         maxCorr(c) = max(r(inds));
         rtmp = r(inds);
         if any(isnan(rtmp))
             minCorr(c) = nan;
@@ -246,7 +251,14 @@ end
 pulseStates = any(voxelOccupancies(:, ledVoxelInds), 2);
 
 % Extract the pulse onset and offset times
-events = detectEvents(pulseStates, data.frameTimestamp);
+events = detectEvents(pulseStates, data.frameTimestamp(inTimeRange));
+
+% Correct pulse frame indices if a time range was specified
+for e = 1:numel(events)
+    events(e).iStart = events(e).iStart + iFirstFrameInTimeRange - 1;
+    events(e).iStop = events(e).iStop + iFirstFrameInTimeRange - 1;
+end
+
 pulseLen = [events.tStop]-[events.tStart];
 pulseInterval = [events(2:end).tStart] - [events(1:end-1).tStop];
 fprintf('Median pulse length = %.1f ms, median interpulse interval = %.1f ms\n', ...
@@ -258,7 +270,7 @@ function v = anyMarkerInBin(binEdges, binIdx, positions)
     nBins = numel(binEdges);
     if binIdx < nBins
         bin = binEdges(binIdx + [0, 1]);
-        v = positions > bin(1) & positions <= bin(2);
+        v = positions >= bin(1) & positions < bin(2);
     else
         v = positions == binEdges(end);
     end
