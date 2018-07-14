@@ -51,62 +51,7 @@ classdef FormatSpec < handle
         
         HEADER_LENGTH = 2^14
         
-        TIMESTAMP_JOIN_INCR = 10000;
-        
-classdef FormatSpec < handle
-    %FormatSpec file format-related constants and functions
-    
-    properties (Constant)
-        
-        FRAME_FIELD_NAMES = {
-            'frameIdx'
-            'frameTimestamp'
-            'frameLatency'}
-        
-        FRAME_ENCODINGS = {
-            'int32'
-            'double'
-            'single'}
-        
-        RB_FIELD_NAMES = {
-            'rbx'
-            'rby'
-            'rbz'
-            'rbqx'
-            'rbqy'
-            'rbqz'
-            'rbqw'
-            'rbError'
-            'rbTracked'}
-        
-        RB_ENCODINGS = {
-            'single'
-            'single'
-            'single'
-            'single'
-            'single'
-            'single'
-            'single'
-            'single'
-            'uint8'}
-        
-        MARKER_FIELD_NAMES = {
-            'mx'
-            'my'
-            'mz'
-            'msz'
-            'mres'}
-        
-        MARKER_ENCODINGS = {
-            'single'
-            'single'
-            'single'
-            'single'
-            'single'}
-        
-        HEADER_LENGTH = 2^14
-        
-        VERSION = '0.2.0';
+        VERSION = '0.2.1';
         
     end
     
@@ -305,18 +250,22 @@ classdef FormatSpec < handle
             end
         end
         
+        function str = versionToString(ver)
+           str = sprintf('%u.%u.%u', ver(1), ver(2), ver(3)); 
+        end
+        
         function [v, meta] = versionFromFile(filename)
             import matmot.FormatSpec
             [pth, fn] = fileparts(filename);
             filenameMeta = fullfile(pth, [fn '.meta']);
-            fileVerPre02 = ~exist(filenameMeta, 'file');
-            if fileVerPre02
+            useMetaFile = exist(filenameMeta, 'file');
+            if useMetaFile
+                fid = fopen(filenameMeta, 'r');
+                txt = fread(fid, [1, inf], '*char');
+            else
                 fid = fopen(filename, 'r');
                 buff = fread(fid, [1, FormatSpec.HEADER_LENGTH], '*char');
                 txt = strtrim(buff);
-            else
-                fid = fopen(filenameMeta, 'r');
-                txt = fread(fid, [1, inf], '*char');
             end
             meta = matmot.FormatSpec.parseMetaText(txt);
             v = meta.matmot_version;
@@ -345,6 +294,21 @@ classdef FormatSpec < handle
                 if rem(n, 1) ~= 0
                     error('Data size %u is incorrect for %u rigid bodies and %u markers', dataSize, nrb, nm);
                 end
+            end
+        end
+        
+        function result = compareVersions(vRef, vQuery)
+            import matmot.FormatSpec.parseVersionStr
+            if ischar(vRef), vRef = parseVersionStr(vRef); end
+            if ischar(vQuery), vQuery = parseVersionStr(vQuery); end
+            verDiff = vRef - vQuery;
+            idx = find(verDiff ~= 0, 1);
+            if isempty(idx)
+                result = 'same';
+            elseif verDiff(idx) > 0
+                result = 'greater';
+            elseif verDiff(idx) < 0
+                result = 'smaller';
             end
         end
         
