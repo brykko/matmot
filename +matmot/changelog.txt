@@ -1,2 +1,5 @@
 2018-03-09 v 0.1.0
--Add multiple rigid body support.
+-Add multiple rigid body support
+
+2018-07-14 v 0.2.0
+-New file format introduced with separate binary (.mtv) and text metadata (.meta) file

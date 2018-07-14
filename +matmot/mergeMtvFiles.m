@@ -18,7 +18,6 @@ P = inp.Results;
 CHUNK_SIZE = 2^15;
 
 % Check all files exist
-% filenames = varargin;
 nFiles = numel(filenames);
 for f = 1:nFiles
     fn = filenames{f};
@@ -31,34 +30,60 @@ if exist(mergedFilename, 'file') && ~P.force
 end
 
 fidOut = fopen(mergedFilename, 'W');
-filepathSum = [mergedFilename '.cat'];
-fidSum = fopen(filepathSum, 'w');
-fidIn = fopen(filenames{1}, 'r');
+[pth, fn, ext] = fileparts(mergedFilename);
+mergedFilenameMeta = fullfile(pth, [fn '.meta']);
+mergedMetaDir = [fn '_meta'];
+if exist(mergedMetaDir, 'dir')
+    rmdir(mergedMetaDir, 's');
+end
+mkdir(mergedMetaDir);
+
+nBytesTotal = 0;
 
 try
-    
-    headerBytes = fread(fidIn, FormatSpec.HEADER_LENGTH, '*uint8');
-    fwrite(fidOut, headerBytes);
-    fclose(fidIn);
+    nFramesTotal = 0;
     
     for f = 1:nFiles
         fn = filenames{f};
+        metaTxt = FormatSpec.readMetaText(fn);
+        meta = FormatSpec.parseMetaText(metaTxt);
+        fileVer = meta.matmot_version;
+        useMetaFile = fileVer(2) > 1;
+        
         fprintf('Writing file "%s"...\n', fn);
         fidIn = fopen(fn, 'r');
-        fseek(fidIn, FormatSpec.HEADER_LENGTH, 'bof');
-        nBytesData = 0;
+        if ~useMetaFile
+            fseek(fidIn, FormatSpec.HEADER_LENGTH, 'bof');
+        end
+        
+        % Copy data to new file
+        nBytes = 0;
         while ~feof(fidIn)
             bytes = fread(fidIn, CHUNK_SIZE, '*uint8');
             fwrite(fidOut, bytes);
-            nBytesData = nBytesData + numel(bytes);
+            nBytes = nBytes + numel(bytes);
         end
+        nBytesTotal = nBytesTotal + nBytes;
         fclose(fidIn);
-        fprintf(fidSum, 'file_index=%u, n_bytes=%u, path="%s"\r\n', ...
-            f, nBytesData, filenames{f});
+        
+        % Write meta text to subdir
+        if fileVer(2) < 2
+            meta.n_frames = FormatSpec.fileNFrames(fn);
+            meta.file_size = nBytes;
+        end
+        
+        fnMeta = fullfile(mergedMetaDir, sprintf('%u.meta', f));
+        FormatSpec.writeMeta(fnMeta, fileVer, meta)
+        nFramesTotal = nFramesTotal + meta.n_frames;
     end
     
+    % Write .meta for target file
+    meta.n_frames = nFramesTotal;
+    meta.file_size = nBytesTotal;
+    meta.composite_file = 'true';
+    FormatSpec.writeMeta(mergedFilenameMeta, FormatSpec.VERSION, meta)
+    
     fclose(fidOut);
-    fclose(fidSum);
     fprintf('All files written.\n');
     succeeded = true;
     msg = '';
@@ -66,8 +91,8 @@ try
 catch e
     % If anything fails, close everything and about, reporting failure
     warning('Merging files failed: "%s". Aborting.', e.message);
-    fids = [fidSum, fidIn, fidOut];
-    for f = 1:3
+    fids = [fidIn, fidOut];
+    for f = 1:2
         try
             fclose(fids(f));
         catch

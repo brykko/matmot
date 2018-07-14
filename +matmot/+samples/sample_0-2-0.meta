@@ -1,0 +1,16 @@
+MatMot Streamer version 0.2.0
+natnet_version=3
+matlab_version=9.4.0.813654 (R2018a)
+time_started=14-Jul-2018 20:47:58
+host_ip=127.0.0.1
+data_dir=N:\richarga\MATLAB\RG Code\matmot\+matmot\+samples
+base_filename=matmot
+frame_increment=1
+writebuff_nframes=120
+n_rigid_bodies=1
+n_markers=20
+simulate=0
+composite_file=false
+n_frames=1200
+file_size=538800
+n_frames=1200

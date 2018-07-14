@@ -72,7 +72,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         hostIP              (1,:) char = '127.0.0.1'
         
         % Ouput file props
-        fileName            (1,:) char = 'motive_stream.mtv'
+        fileName            (1,:) char = 'matmot.mtv'
         
         % Aqcuisition settings
         writeToFile         (1,1) logical = true
@@ -140,10 +140,6 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
         timeElapsed
         pos
         rot
-    end
-    
-    properties (Constant)
-        VERSION = '0.1.0'
     end
     
     properties (SetAccess = protected)
@@ -291,7 +287,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 return;
             end
             
-            % For callback mode, delete the FrameReady listener
+            % Delete the FrameReady listener
             if ~isempty(self.frameReadyListener) && isvalid(self.frameReadyListener)
                 delete(self.frameReadyListener);
             end
@@ -303,6 +299,16 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             end
             
             self.closeOutputFile();
+            
+            % Write number of frames to meta file
+            paths = self.getFiles();
+            newParams = struct( ...
+                'n_frames', self.nFramesAcquired, ...
+                'file_size', matmot.helpers.fileSize(paths.data));
+            matmot.FormatSpec.editMeta(paths.meta, newParams);
+            
+            fid = fopen(paths.meta, 'a');
+            fprintf(fid, 'n_frames=%u\r\n', self.nFramesAcquired);
             
             % Done! Generate summary and clean up
             self.logger.i('Streaming finished. Total number of dropped frames: %u. Mean getFrame time = %.2f ms, flushBuffer time = %.2f ms.', ...
@@ -323,7 +329,8 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             % GETFILES return filepaths associated with Streamer instance
             [~, baseName, ~] = fileparts(self.fileName);
             paths = struct( ...
-                'data', fullfile(self.dataDir, self.fileName), ...
+                'data', fullfile(self.dataDir, [self.fileName '.mtv']), ...
+                'meta', fullfile(self.dataDir, [self.fileName '.meta']), ...
                 'log', fullfile(self.dataDir, [baseName '.log']), ...
                 'streamer', fullfile(self.dataDir, [baseName '_streamer.mat']));
         end
@@ -470,7 +477,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             
             self.logger.i('Initializing streaming');
             
-            % Open output file
+            % Open output binary file
             filePath = self.getFiles().data;
             self.logger.v('Opening output data file %s', filePath);
             [self.fid, message] = fopen(filePath, 'W');
@@ -480,7 +487,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                 error(msg);
             end
             self.fileOpen = true;
-            self.writeHeader();
+            self.writeMeta();
             
             % Initialize various streaming variables
             self.writeBufferTmp = zeros(1, self.nBytesPerFrame(), 'uint8');
@@ -566,41 +573,32 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             self.closeLogFile();
         end
         
-        function writeHeader(self)
+        function writeMeta(self)    
+            import matmot.FormatSpec
+            nnVer = self.NNClient.NatNetVersion();
             
-            function printprm(prm, val, fmt)
-                if nargin < 3 || isempty(fmt), fmt = '%s'; end
-                assert(~any(isspace(prm)))
-                fprintf(self.fid, ['%s=' fmt '\r\n'], prm, val);
-            end
-            
-            % Write parameter settings to header
-            fprintf(self.fid, 'MatMot Streamer version %s\r\n', self.VERSION);
-            tmp = self.NNClient.NatNetVersion();
-            printprm('natnet_version', tmp(1), '%u')
-            printprm('matlab_version', version())
-            printprm('time_started', datestr(now()))
-            printprm('host_ip', self.hostIP)
-            printprm('data_dir', self.dataDir)
-            printprm('file_name', self.fileName)
-            printprm('frame_increment', self.frameIncrement, '%u')
-            printprm('writebuff_nframes', self.writeBufferNFrames, '%u')
-            printprm('n_rigid_bodies', self.nRigidBodies, '%u')
-            printprm('n_markers', self.nMarkers, '%u')
-            printprm('simulate', self.simulate, '%u')
-            
-            % Fill remainder of 16 kb header allocation with white space
-            nBytesWritten = ftell(self.fid);
-            headerLen = matmot.FormatSpec.HEADER_LENGTH;
-            bytes = repmat(char(32), 1, headerLen-nBytesWritten);
-            fwrite(self.fid, bytes);
-            
+            params = struct( ...
+                'natnet_version', nnVer(1), ...
+            'matlab_version', version(), ...
+            'time_started', datestr(now()), ...
+            'host_ip', self.hostIP, ...
+            'data_dir', self.dataDir, ...
+            'base_filename', self.fileName, ...
+            'frame_increment', self.frameIncrement, ...
+            'writebuff_nframes', self.writeBufferNFrames, ...
+            'n_rigid_bodies', self.nRigidBodies, ...
+            'n_markers', self.nMarkers, ...
+            'simulate', self.simulate, ...
+            'composite_file', 'false');
+        
+            paths = self.getFiles();
+            FormatSpec.writeMeta(paths.meta, FormatSpec.VERSION, params);
         end
         
         function closeOutputFile(self)
             if self.fileOpen
-                filePath = fullfile(self.dataDir, self.fileName);
-                self.logger.d('Closing file "%s"', filePath);
+                paths = self.getFiles();
+                self.logger.d('Closing file "%s"', paths.data);
                 fclose(self.fid);
                 self.fileOpen = false;
             end
@@ -664,7 +662,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             [pth, fn, ext]  = fileparts(self.fileName);
             if isempty(pth), pth = pwd(); end
             self.dataDir = pth;
-            self.fileName = [fn '.mtv'];
+            self.fileName = fn;
             
         end
         
