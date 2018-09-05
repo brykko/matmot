@@ -8,14 +8,15 @@ function [succeeded, msg] = mergeMtvFiles(mergedFilename, filenames, varargin)
 % files FN1, FN2, FN3 (etc.), saving the joined data in file FNSAVE. FNSAVE
 % will always take the file header from the first input filename.
 
-import matmot.FormatSpec
+import matmot.FormatSpec.*
 
 inp = inputParser();
 inp.addParameter('force', false);
+inp.addParameter('verbose', false);
 inp.parse(varargin{:});
 P = inp.Results;
 
-CHUNK_SIZE = 2^15;
+CHUNK_N_FRAMES = 1024;
 
 % Check all files exist
 nFiles = numel(filenames);
@@ -32,48 +33,49 @@ end
 fidOut = fopen(mergedFilename, 'W');
 [pth, fn, ext] = fileparts(mergedFilename);
 mergedFilenameMeta = fullfile(pth, [fn '.meta']);
-mergedMetaDir = [fn '_meta'];
+mergedMetaDir = fullfile(pth, [fn '_meta']);
 if exist(mergedMetaDir, 'dir')
     rmdir(mergedMetaDir, 's');
 end
 mkdir(mergedMetaDir);
 
 nBytesTotal = 0;
+fidIn = 0;
 
 try
     nFramesTotal = 0;
     
     for f = 1:nFiles
         fn = filenames{f};
-        metaTxt = FormatSpec.readMetaText(fn);
-        meta = FormatSpec.parseMetaText(metaTxt);
-        fileVer = meta.matmot_version;
-        useMetaFile = fileVer(2) > 1;
-        
-        fprintf('Writing file "%s"...\n', fn);
+        [meta, fileVer, offset] = readMeta(fn);
+        nBytesFrame = bytesPerFrame(meta.n_rigid_bodies, meta.n_markers);
         fidIn = fopen(fn, 'r');
-        if ~useMetaFile
-            fseek(fidIn, FormatSpec.HEADER_LENGTH, 'bof');
-        end
+        fseek(fidIn, offset, 'bof');
         
         % Copy data to new file
+        fprintf('Writing data from source file "%s" to target file "%s"...', fn, mergedFilename);
         nBytes = 0;
-        while ~feof(fidIn)
-            bytes = fread(fidIn, CHUNK_SIZE, '*uint8');
+        nFiles = 0;
+        
+        while nFiles < meta.n_frames
+            bytes = fread(fidIn, [nBytesFrame, CHUNK_N_FRAMES], '*uint8');
+            nFiles = nFiles + size(bytes, 2);
+            if nFiles > meta.n_frames
+                nDrop = nFiles - meta.n_frames;
+                bytes = bytes(:, 1:end-nDrop);
+            end
             fwrite(fidOut, bytes);
             nBytes = nBytes + numel(bytes);
         end
+        
         nBytesTotal = nBytesTotal + nBytes;
         fclose(fidIn);
+        fprintf('done.\n');
         
         % Write meta text to subdir
-        if fileVer(2) < 2
-            meta.n_frames = FormatSpec.fileNFrames(fn);
-            meta.file_size = nBytes;
-        end
-        
+        meta.file_size = nBytes;
         fnMeta = fullfile(mergedMetaDir, sprintf('%u.meta', f));
-        FormatSpec.writeMeta(fnMeta, fileVer, meta)
+        writeMeta(fnMeta, fileVer, meta)
         nFramesTotal = nFramesTotal + meta.n_frames;
     end
     
@@ -81,7 +83,7 @@ try
     meta.n_frames = nFramesTotal;
     meta.file_size = nBytesTotal;
     meta.composite_file = 'true';
-    FormatSpec.writeMeta(mergedFilenameMeta, FormatSpec.VERSION, meta)
+    writeMeta(mergedFilenameMeta, Version(), meta)
     
     fclose(fidOut);
     fprintf('All files written.\n');

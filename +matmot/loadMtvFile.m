@@ -1,4 +1,4 @@
-function [data, meta] = loadMtvFile(filename)
+function [data, meta] = loadMtvFile(filename, varargin)
 %LOADMTVFILE read contents of binary .mtv file from Streamer
 %
 % DATA = LOADMTVFILE(FILENAME) reads the contents of the .mtv file
@@ -47,22 +47,14 @@ function [data, meta] = loadMtvFile(filename)
 %
 %   mres (single) - residuals of labelled markers.
 
-import matmot.Streamer
-import matmot.FormatSpec
+import matmot.FormatSpec.*
 
-% Determine file format version
-% v0.1 has a single data file with 16 kb header
-% v0.2+ has a headerless data file with separate metadata text file
-txt = FormatSpec.readMetaText(filename);
-meta = FormatSpec.parseMetaText(txt);
-ver = meta.matmot_version;
-
-if ver(2) >= 1
-    nRbs = meta.n_rigid_bodies;
-else
-    nRbs = 1;
-    meta.n_rigid_bodies = nRbs;
-end
+inp = inputParser();
+inp.addParameter('fixTimestamps', true);
+inp.addParameter('fixTimestampsIncrement', 1e3);
+inp.addParameter('fixTimestampsThresholdFrames', 120);
+inp.parse(varargin{:});
+P = inp.Results;
 
 % Open the binary data file
 [fid, msg] = fopen(filename, 'r');
@@ -70,58 +62,91 @@ if fid == -1
     error('Could not open file %s: message "%s"', filename, msg);
 end
 
-if ver(2) < 2
-    fread(fid, FormatSpec.HEADER_LENGTH);
-end
+% Read off header (pre-v0.2 only)
+[meta, ver, offset] = readMeta(filename);
+fread(fid, offset);
 
-nBytesBasic = FormatSpec.bytesBasic();
-nBytesRb = nRbs * FormatSpec.bytesPerRb();
-nBytesFrame = FormatSpec.bytesPerFrame(nRbs, meta.n_markers);
-allBytes = fread(fid, [nBytesFrame, inf], '*uint8');
+nRb = meta.n_rigid_bodies;
+nMrk = meta.n_markers;
+nBytesFrame = bytesPerFrame(nRb, nMrk);
+allBytes = fread(fid, [nBytesFrame, meta.n_frames], '*uint8');
 fclose(fid);
 
-nFrames = size(allBytes, 2);
-basicFields = FormatSpec.basicFields();
-rbFields = FormatSpec.rbFields();
 
-% Cycle through rigid body fields and interpret the relevant bytes for field
-% appropriately
-for f = 1:numel(basicFields)
-    field = basicFields(f);
-    inds = field.byte_inds + (0 : (field.n_bytes-1));
-    bytes = allBytes(inds, :);
-    tmp = typecast(bytes(:), field.encoding);
-    data.(field.name) = reshape(tmp, [], nFrames)';
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DECODE FIELDS
+% The "basic" fields occur once in each record. The remainder of fields
+% correspond to rigid-body or marker data, and therefore are repeated 
+% according to the number of rigid bodies and markers.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Get names, encodings and repetition number for all fields
+allFields = [
+    basicFields()
+    rbFields()
+    markerFields()
+    ];
+
+fieldNReps = [ 
+    ones(size(basicFields())) 
+    ones(size(rbFields()))*nRb
+    ones(size(markerFields()))*nMrk
+    ];
+
+
+% Decode bytes for each field
+startByteIdx = 1;
+
+for f = 1:numel(allFields)
+    field = allFields(f);
+    nrep = fieldNReps(f);
+    nb = field.n_bytes;
+    inds = startByteIdx + (0 : (nrep-1))*nb + (0 : (nb-1))';
+    encoding = convertEncoding(field.encoding);
+    bytes = allBytes(inds(:), :);
+    tmp = typecast(bytes(:), encoding);
+    data.(field.name) = reshape(tmp, nrep, meta.n_frames)';
+    startByteIdx = startByteIdx + nb*nrep;
 end
 
-% Read the rigid bodies
-indField = nBytesBasic + 1;
-for f = 1:numel(rbFields)
-    field = rbFields(f);
-    nBytes = field.n_bytes;
-    for r = 1:nRbs
-        inds = indField + (r-1)*nBytes + (0 : (nBytes-1));
-        bytes = allBytes(inds, :);
-        tmp = typecast(bytes(:), field.encoding);
-        data.(field.name)(:, r) = reshape(tmp, [], nFrames)';
-    end
-    indField = indField + field.n_bytes*nRbs;
+if P.fixTimestamps
+    data.frameTimestamp = fixTimestamps(data.frameTimestamp, P);
 end
 
-% Read the markers
-markerFields = FormatSpec.markerFields();
-indField = nBytesBasic + nBytesRb + 1;
-for f = 1:numel(markerFields)
-    field = markerFields(f);
-    encodingConv = FormatSpec.convertEncoding(field.encoding);
-    nBytes = field.n_bytes;
-    for m = 1:meta.n_markers
-        inds = indField + (m-1)*nBytes + (0 : (nBytes-1));
-        bytes = allBytes(inds, :);
-        tmp = typecast(bytes(:), encodingConv);
-        data.(field.name)(:, m) = reshape(tmp, [], nFrames)';
+end
+
+function t = fixTimestamps(t0, P)
+% Ensures timestamps are monotonically ascending
+
+t = t0;
+
+increment = P.fixTimestampsIncrement;
+thresh = P.fixTimestampsThresholdFrames;
+
+dt = diff(t0);
+iNeg = find(dt<0);
+iNegBef = max(1, iNeg-thresh+1);
+iNegAft = min(numel(t0), iNeg+thresh);
+
+iBad = [];
+for n = 1:numel(iNeg)
+    indsBef = iNegBef(n):iNeg(n);
+    indsAft = (iNeg(n)+1 : iNegAft(n));
+    if min(t0(indsBef)) > max(t0(indsAft))
+        iBad(end+1, 1) = iNeg(n);
     end
-    indField = indField + field.n_bytes*meta.n_markers;
+end
+
+nBad = numel(iBad);
+nFrames = numel(t0);
+
+if nBad > 0
+    fprintf('Timestamps are not monotonically ascending. Fixing %u negative jumps.\n', nBad);
+    for i = 1:nBad
+        inds = (iBad(i)+1 : nFrames)';
+        tShift = t(inds(1)-1) - t(inds(1)) + increment;
+        t(inds) = t(inds) + tShift;
+    end
 end
 
 end

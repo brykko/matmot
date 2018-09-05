@@ -3,3 +3,9 @@
 
 2018-07-14 v 0.2.0
 -New file format introduced with separate binary (.mtv) and text metadata (.meta) file
+
+2018-07-14 v 0.2.2
+-Streamer now does not invert x-axis of rigid body coordinates
+
+2018-07-14 v 0.2.3
+-Change in procedure for detecting erroneous timestamps

@@ -589,6 +589,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
             'n_rigid_bodies', self.nRigidBodies, ...
             'n_markers', self.nMarkers, ...
             'simulate', self.simulate, ...
+            'rbx_inverted', 'false', ...
             'composite_file', 'false');
         
             paths = self.getFiles();
@@ -778,7 +779,7 @@ classdef Streamer < handle & matlab.mixin.CustomDisplay
                                 'qx', nan, 'qy', nan, 'qz', nan, 'qw', nan, ...
                                 'MeanError', nan, 'Tracked', 0);
                         end
-                        self.rbx(r) = -rb.x;
+                        self.rbx(r) = rb.x;
                         self.rby(r) = rb.y;
                         self.rbz(r) = rb.z;
                         self.rbqx(r) = rb.qx;

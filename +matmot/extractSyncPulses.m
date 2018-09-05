@@ -49,7 +49,8 @@ inp.addParameter('nLedsMax', 4);
 inp.addParameter('ledMinPercentOccupancy', 20);
 inp.addParameter('ledMaxPercentOccupancy', 60);
 inp.addParameter('validPositionRange', {[-5 5], [-5 5], [-5 5]});
-inp.addParameter('timeRange', [0 inf]);
+inp.addParameter('timeRange', []);
+inp.addParameter('frameIndexRange', []);
 inp.addParameter('nBins', 20);
 
 inp.parse(varargin{:});
@@ -66,18 +67,24 @@ if P.plot
 end
 
 data = matmot.loadMtvFile(filepath);
-t = data.frameTimestamp;
-inTimeRange = t >= P.timeRange(1) & t <= P.timeRange(2);
-iFirstFrameInTimeRange = find(inTimeRange, 1);
-tFirstFrameInTimeRange = t(iFirstFrameInTimeRange);
-nFrames = numel(find(inTimeRange));
+
+if ~isempty(P.timeRange)
+    t = data.frameTimestamp;
+    validFrames = t >= P.timeRange(1) & t <= P.timeRange(2);
+elseif ~isempty(P.frameIndexRange)
+    inds = (1:numel(data.frameTimestamp))';
+    validFrames = inds >= P.frameIndexRange(1) & inds <= P.frameIndexRange(2);
+end
+iFirstValidFrame = find(validFrames, 1);
+
+nFrames = numel(find(validFrames));
 
 % Concatenate all marker positions and generate 3D histogram to determine
 % where the highest-occupancy voxels are. Discard any spurious positions
 % that lie outside the valid range.
 mPos = {data.mx, data.my, data.mz};
 for n = 1:3
-    tmp = mPos{n}(inTimeRange, :);
+    tmp = mPos{n}(validFrames, :);
     rng = P.validPositionRange{n};
     validPos = tmp >= rng(1) & tmp <= rng(2);
     tmp(~validPos) = nan;
@@ -140,7 +147,7 @@ for b = 1:P.nCheck
         inBin = inBin & anyMarkerInBin(histEdges{dim}, inds(dim), mPos{dim});
     end
     if P.plot
-        x = data.frameTimestamp(inTimeRange);
+        x = data.frameTimestamp(validFrames);
         y = inBin/2 + b;
         line(ax, x, y, 'color', 'k');
     end
@@ -251,12 +258,12 @@ end
 pulseStates = any(voxelOccupancies(:, ledVoxelInds), 2);
 
 % Extract the pulse onset and offset times
-events = detectEvents(pulseStates, data.frameTimestamp(inTimeRange));
+events = detectEvents(pulseStates, data.frameTimestamp(validFrames));
 
 % Correct pulse frame indices if a time range was specified
 for e = 1:numel(events)
-    events(e).iStart = events(e).iStart + iFirstFrameInTimeRange - 1;
-    events(e).iStop = events(e).iStop + iFirstFrameInTimeRange - 1;
+    events(e).iStart = events(e).iStart + iFirstValidFrame - 1;
+    events(e).iStop = events(e).iStop + iFirstValidFrame - 1;
 end
 
 pulseLen = [events.tStop]-[events.tStart];
