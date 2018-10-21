@@ -64,9 +64,9 @@ classdef FormatSpec
     
     methods (Static)
         
-        % These UPPERCASE methods are really just constants, implemented
-        % as functions because matlab doesn't allow importing of class
-        % constants.
+        % These UPPERCASE methods are effectively constants, implemented
+        % as static methods as convenience, because methods can be imported 
+        % while class constants cannot.
         
         function val = BASIC_FIELD_NAMES() 
             val = {
@@ -131,7 +131,7 @@ classdef FormatSpec
         end
         
         function val = VERSION()
-            val = '0.2.3';
+            val = '0.2.4';
         end
         
         function ver = Version()
@@ -293,22 +293,20 @@ classdef FormatSpec
         end
         
         function meta = readMetaPartFiles(mergedFilename)
-            import matmot.FormatSpec.readMeta
+            import matmot.FormatSpec.*
             [pth, fn] = fileparts(mergedFilename);
             metaDir = fullfile(pth, [fn '_meta']);
             tmp = dir(fullfile(metaDir, '*.meta'));
             metafiles = {tmp.name};
             nFiles = numel(metafiles);
-            txt = {};
             meta = {};
             fileInds = [];
             for f = 1:nFiles
                 fn = fullfile(metaDir, metafiles{f});
-                meta{f, 1} = readMeta(fn);
+                meta{f, 1} = readMetaSub(fn);
                 fileInds(f) = sscanf(metafiles{f}, '%u.meta');
             end
             [~, iSort] = sort(fileInds);
-            txt = txt(iSort);
             meta = meta(iSort);
         end
         
@@ -325,21 +323,7 @@ classdef FormatSpec
         
         function [meta, ver, offset] = readMeta(filename)
             import matmot.FormatSpec.*
-            [pth, fn] = fileparts(filename);
-            filenameMeta = fullfile(pth, [fn '.meta']);
-            useMetaFile = exist(filenameMeta, 'file');
-            if useMetaFile
-                fid = fopen(filenameMeta, 'r');
-                metaTxt = fread(fid, [1, inf], '*char');
-                offset = 0;
-            else
-                fid = fopen(filename, 'r');
-                buff = fread(fid, [1, HEADER_LENGTH], '*char');
-                metaTxt = strtrim(buff);
-                offset = HEADER_LENGTH;
-            end
-            fclose(fid);
-            [meta, ver] = parseMetaText(metaTxt);
+            [meta, ver, offset] = readMetaSub(filename);
             
             fid = fopen(filename, 'r');
             fseek(fid, 0, 'eof');
@@ -360,6 +344,26 @@ classdef FormatSpec
                     nFrames, meta.n_frames)
             end
             meta.n_frames = nFrames;
+        end
+        
+        function [meta, ver, offset] = readMetaSub(filename)
+            import matmot.FormatSpec.*
+            % Reads metadata from a .mtv file
+            [pth, fn] = fileparts(filename);
+            filenameMeta = fullfile(pth, [fn '.meta']);
+            useMetaFile = exist(filenameMeta, 'file');
+            if useMetaFile
+                fid = fopen(filenameMeta, 'r');
+                metaTxt = fread(fid, [1, inf], '*char');
+                offset = 0;
+            else
+                fid = fopen(filename, 'r');
+                buff = fread(fid, [1, HEADER_LENGTH], '*char');
+                metaTxt = strtrim(buff);
+                offset = HEADER_LENGTH;
+            end
+            fclose(fid);
+            [meta, ver] = parseMetaText(metaTxt);
         end
         
     end

@@ -9,3 +9,7 @@
 
 2018-07-14 v 0.2.3
 -Change in procedure for detecting erroneous timestamps
+
+2018-10-21 v 0.2.4
+-New approach for handling out-of-place frames
+-Improved LED sync pulse detection

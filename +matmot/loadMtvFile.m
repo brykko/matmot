@@ -50,11 +50,19 @@ function [data, meta] = loadMtvFile(filename, varargin)
 import matmot.FormatSpec.*
 
 inp = inputParser();
-inp.addParameter('fixTimestamps', true);
+inp.addParameter('frameCleanupMethod', 'sort');
+inp.addParameter('fixTimestamps', []);
 inp.addParameter('fixTimestampsIncrement', 1e3);
 inp.addParameter('fixTimestampsThresholdFrames', 120);
 inp.parse(varargin{:});
 P = inp.Results;
+
+if ~isempty(P.fixTimestamps)
+    warning('matmot:loadMtvFile:fixTimestampsDeprecated', ...
+        'Parameter "fixTimestamps" is deprecated, please use the new alternative "frameCleanupMethod" instead.');
+    P.frameCleanupMethod = 'fixTimestamps';
+end
+    
 
 % Open the binary data file
 [fid, msg] = fopen(filename, 'r');
@@ -109,44 +117,140 @@ for f = 1:numel(allFields)
     startByteIdx = startByteIdx + nb*nrep;
 end
 
-if P.fixTimestamps
-    data.frameTimestamp = fixTimestamps(data.frameTimestamp, P);
+% Check for bad frames
+nt = numel(data.frameTimestamp);
+[iNeg, iOverlap, iMatch] = checkTimestamps(data.frameTimestamp);
+nNeg = numel(iNeg);
+nOverlap = numel(iOverlap);
+percentOverlap = nOverlap ./ (nt-nOverlap) .* 100;
+nMatch = numel(find(~isnan(iMatch)));
+percentDupTime = nMatch ./ nOverlap .* 100;
+if nOverlap > 0
+    warning( ...
+        'matmot:loadMtvFile:overlappingTimestamps', ...
+        'The timestamps in this file are not monotonically ascending (%u negative jumps, %.2f%% overlapping frames, of which %.2f%% have matching (duplicated) timestamps)', ...
+        nNeg, percentOverlap, percentDupTime);
+end
+
+if strcmpi(P.frameCleanupMethod, 'fixTimestamps')
+    % OLD METHOD: out-of-order timestamp frames are interpreted as having
+    % erroneous timestamps, but being otherwise OK. All frames are kept (in
+    % their original order), and timestamp values are altered to remove
+    % overlap.
+    data = fixTimestamps(data, P);
+elseif any(strcmpi(P.frameCleanupMethod, {'sort', 'discard'}))
+    % NEW METHOD: out-of-order timestamps are interpreted as representing
+    % out-of-order frames which may or may not be duplicates of previous
+    % frames in the file. The "discard" method eliminates all frames
+    % occurring in overlapping time regions (most conservative), while the
+    % "sort" method eliminates only frames whose timestamp exactly matches
+    % a previous frame in the file.
+    data = fixOverlappingFrames(data, iOverlap, iMatch, P.frameCleanupMethod);
+elseif ~strcmpi(P.frameCleanupMethod, 'none')
+    error('matmot:loadMtvFile:invalidFrameCleanupMethod', ...
+        'Valid options for parameter "frameCleanupMethod" are "sort", "discard", "fixTimestamps" and "none"');
 end
 
 end
 
-function t = fixTimestamps(t0, P)
+function [iNeg, iOverlap, iMatch] = checkTimestamps(t)
+
+    dt = diff(t);
+    iNeg = find(dt<0);
+    
+    lastValidTime = -inf;
+    iOverlap = [];
+    iMatch = [];
+    nOverlap = 0;
+    
+    for n = 2:numel(t)
+        
+        if dt(n-1) < 0
+            inOverlapZone = true;
+        else
+            inOverlapZone = t(n) <= lastValidTime;
+        end
+        
+        if inOverlapZone
+            nOverlap = nOverlap + 1;
+            vMatch = t==t(n);
+            vMatch(n) = false;
+            inds = find(vMatch);
+            if isempty(inds)
+                matchIdx = NaN;
+            else
+                matchIdx = inds(1);
+            end
+            iOverlap(nOverlap, 1) = n;
+            iMatch(nOverlap, 1) = matchIdx;
+        else
+            lastValidTime = t(n);
+        end
+    end
+end
+
+function data = fixOverlappingFrames(data, iOverlap, iMatch, mode)
+    % New approach: treat overlapping frames as either duplicated or 
+    % out-of-order. Possibilities are (1) discard all frames from time
+    % regions were identified as ovelapping, or (2) discard only frames
+    % which have exactly duplicated timestamps, and sort all remaining
+    % frames in timestamp order.
+    t = data.frameTimestamp;
+    
+    if strcmpi(mode, 'sort')
+        [~, iSort] = sort(t);
+        vKeep = true(size(t));
+        vKeep(iOverlap(~isnan(iMatch))) = false;
+        iSort = iSort(vKeep(iSort));
+        frameInds = iSort;
+    elseif strcmpi(mode, 'discard')
+        frameInds = (1:numel(t));
+        frameInds(iOverlap) = [];
+    end
+    
+    fds = fieldnames(data);
+    for f = 1:numel(fds)
+        fd = fds{f};
+        data.(fd) = data.(fd)(frameInds, :);
+    end
+    t = data.frameTimestamp;
+    assert(all(diff(t)>0));
+end
+
+function data = fixTimestamps(data, P)
 % Ensures timestamps are monotonically ascending
 
-t = t0;
+t = data.frameTimestamp;
 
 increment = P.fixTimestampsIncrement;
 thresh = P.fixTimestampsThresholdFrames;
 
-dt = diff(t0);
+dt = diff(t);
 iNeg = find(dt<0);
 iNegBef = max(1, iNeg-thresh+1);
-iNegAft = min(numel(t0), iNeg+thresh);
+iNegAft = min(numel(t), iNeg+thresh);
 
 iBad = [];
 for n = 1:numel(iNeg)
     indsBef = iNegBef(n):iNeg(n);
     indsAft = (iNeg(n)+1 : iNegAft(n));
-    if min(t0(indsBef)) > max(t0(indsAft))
+    if min(t0(indsBef)) > max(t(indsAft))
         iBad(end+1, 1) = iNeg(n);
     end
 end
 
 nBad = numel(iBad);
-nFrames = numel(t0);
+nFrames = numel(t);
 
 if nBad > 0
-    fprintf('Timestamps are not monotonically ascending. Fixing %u negative jumps.\n', nBad);
+%     fprintf('Timestamps are not monotonically ascending. Fixing %u negative jumps.\n', nBad);
     for i = 1:nBad
         inds = (iBad(i)+1 : nFrames)';
         tShift = t(inds(1)-1) - t(inds(1)) + increment;
         t(inds) = t(inds) + tShift;
     end
 end
+
+data.frameTimestamp = t;
 
 end

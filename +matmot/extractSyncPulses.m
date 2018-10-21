@@ -46,8 +46,12 @@ inp.addParameter('nCheck', 50);
 inp.addParameter('voxelCorrThreshold', 0.9);
 inp.addParameter('nLedsMin', 3);
 inp.addParameter('nLedsMax', 4);
-inp.addParameter('ledMinPercentOccupancy', 20);
+inp.addParameter('ledMinPercentOccupancy', 10);
 inp.addParameter('ledMaxPercentOccupancy', 60);
+inp.addParameter('ledMinMedianIpi', 0.6);
+inp.addParameter('ledMaxMedianIpi', 1);
+inp.addParameter('ledMinCvIpi', 0.15);
+inp.addParameter('ledMaxCvIpi', 0.3);
 inp.addParameter('validPositionRange', {[-5 5], [-5 5], [-5 5]});
 inp.addParameter('timeRange', []);
 inp.addParameter('frameIndexRange', []);
@@ -137,9 +141,14 @@ if P.plot
 end
 
 voxelOccupancies = false(nFrames, P.nCheck);
+voxelCvIpi = zeros(P.nCheck, 1);
+voxelMedIpi = zeros(P.nCheck, 1);
+t = data.frameTimestamp(validFrames);
+hiOccupancyVoxelInds = zeros(P.nCheck, 3);
 
 for b = 1:P.nCheck
     % Get the edges of the current voxel
+    clear inds
     [inds(1), inds(2), inds(3)] = ind2sub(size(histCounts), indsSort(b));
     hiOccupancyVoxelInds(b, :) = inds;
     inBin = true(nFrames, 1);
@@ -147,15 +156,24 @@ for b = 1:P.nCheck
         inBin = inBin & anyMarkerInBin(histEdges{dim}, inds(dim), mPos{dim});
     end
     if P.plot
-        x = data.frameTimestamp(validFrames);
         y = inBin/2 + b;
-        line(ax, x, y, 'color', 'k');
+        line(ax, t, y, 'color', 'k');
     end
     voxelOccupancies(:, b) = inBin;
+    inds = find(diff(inBin) == 1);
+    tOn = t(inds);
+    ipi = diff(tOn);
+    voxelCvIpi(b) = mad(ipi, 1) ./ median(ipi);
+    voxelMedIpi(b) = median(ipi);
 end
 
-voxelPercentOccupancies = 100 * sum(voxelOccupancies) / nFrames;
-validVoxels = voxelPercentOccupancies >= P.ledMinPercentOccupancy;
+voxelPercentOccupancies = 100 * sum(voxelOccupancies)' / nFrames;
+
+validOccupancy = voxelPercentOccupancies >= P.ledMinPercentOccupancy & voxelPercentOccupancies <= P.ledMaxPercentOccupancy;
+validMedianIpi = voxelMedIpi >= P.ledMinMedianIpi & voxelMedIpi <= P.ledMaxMedianIpi;
+validCvIpi = voxelCvIpi >= P.ledMinCvIpi & voxelCvIpi <= P.ledMaxCvIpi;
+validVoxels = validOccupancy & validMedianIpi & validCvIpi;
+
 hiOccupancyVoxelInds = hiOccupancyVoxelInds(validVoxels, :);
 voxelOccupancies = voxelOccupancies(:, validVoxels);
 r = corr(voxelOccupancies);
