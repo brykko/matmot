@@ -1,4 +1,4 @@
-classdef Version
+classdef Version < matlab.mixin.CustomDisplay
     %VERSION simple class for comparing sequential versions (e.g. x.x.x)
     
     properties
@@ -55,6 +55,12 @@ classdef Version
             verDiff = self.difference(ver);
             idx = find(verDiff ~= 0, 1);
             tf = isempty(idx);
+        end
+    end
+    
+    methods (Access=protected)
+        function displayScalarObject(self)
+            fprintf('%s\n\n', self.toString());
         end
     end
     

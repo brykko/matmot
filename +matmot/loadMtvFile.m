@@ -51,19 +51,9 @@ import matmot.FormatSpec.*
 
 inp = inputParser();
 inp.addParameter('frameCleanupMethod', 'sort');
-inp.addParameter('fixTimestamps', []);
-inp.addParameter('fixTimestampsIncrement', 1e3);
-inp.addParameter('fixTimestampsThresholdFrames', 120);
 inp.parse(varargin{:});
 P = inp.Results;
-
-if ~isempty(P.fixTimestamps)
-    warning('matmot:loadMtvFile:fixTimestampsDeprecated', ...
-        'Parameter "fixTimestamps" is deprecated, please use the new alternative "frameCleanupMethod" instead.');
-    P.frameCleanupMethod = 'fixTimestamps';
-end
     
-
 % Open the binary data file
 [fid, msg] = fopen(filename, 'r');
 if fid == -1
@@ -79,7 +69,6 @@ nMrk = meta.n_markers;
 nBytesFrame = bytesPerFrame(nRb, nMrk);
 allBytes = fread(fid, [nBytesFrame, meta.n_frames], '*uint8');
 fclose(fid);
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % DECODE FIELDS
@@ -122,14 +111,24 @@ nt = numel(data.frameTimestamp);
 [iNeg, iOverlap, iMatch] = checkTimestamps(data.frameTimestamp);
 nNeg = numel(iNeg);
 nOverlap = numel(iOverlap);
-percentOverlap = nOverlap ./ (nt-nOverlap) .* 100;
-nMatch = numel(find(~isnan(iMatch)));
-percentDupTime = nMatch ./ nOverlap .* 100;
+percentOverlap = nOverlap ./ nt .* 100;
+nOverlapUnique = numel(find(isnan(iMatch)));
+percentOverlapUnique = nOverlapUnique ./ nOverlap .* 100;
+
+MAX_PERCENT_UNIQUE_OVERLAP = 20;
+
 if nOverlap > 0
     warning( ...
-        'matmot:loadMtvFile:overlappingTimestamps', ...
-        'The timestamps in this file are not monotonically ascending (%u negative jumps, %.2f%% overlapping frames, of which %.2f%% have matching (duplicated) timestamps)', ...
-        nNeg, percentOverlap, percentDupTime);
+        'matmot:loadMtvFile:overlappingFrames', ...
+        'The timestamps in this file are not monotonically ascending (%u negative jumps, %.2f%% frames in overlapping time periods, of which %.2f%% are unique frames).', ...
+        nNeg, percentOverlap, percentOverlapUnique);
+    
+    if strcmpi(meta.composite_file, 'true') && percentOverlapUnique > MAX_PERCENT_UNIQUE_OVERLAP
+    warning( ...
+        'matmot:loadMtvFile:uniqueOverlappingFrames', ...
+        '%.2f%% of the overlapping frames in this file are unique. This is likely due to the original files having non-ascending timestamps. Please consider regenerating the merged file in order to correct out-of-order timestamps.', ...
+        percentOverlapUnique);
+    end
 end
 
 if strcmpi(P.frameCleanupMethod, 'fixTimestamps')
@@ -159,8 +158,8 @@ function [iNeg, iOverlap, iMatch] = checkTimestamps(t)
     iNeg = find(dt<0);
     
     lastValidTime = -inf;
-    iOverlap = [];
-    iMatch = [];
+    iOverlap = zeros(size(t));
+%     iMatch = [];
     nOverlap = 0;
     
     for n = 2:numel(t)
@@ -173,20 +172,22 @@ function [iNeg, iOverlap, iMatch] = checkTimestamps(t)
         
         if inOverlapZone
             nOverlap = nOverlap + 1;
-            vMatch = t==t(n);
-            vMatch(n) = false;
-            inds = find(vMatch);
-            if isempty(inds)
-                matchIdx = NaN;
-            else
-                matchIdx = inds(1);
-            end
-            iOverlap(nOverlap, 1) = n;
-            iMatch(nOverlap, 1) = matchIdx;
+            iOverlap(nOverlap) = n;
         else
             lastValidTime = t(n);
         end
     end
+    
+    iOverlap = iOverlap(1:nOverlap);
+    
+    % For the overlapping frames, determine which of them are duplicates of
+    % preexisting frames in the file
+    [c,indsT,indsC] = unique(t);
+    isDuplicateFrame = true(size(t));
+    isDuplicateFrame(indsT) = false;
+    iMatch = indsT(indsC(iOverlap));
+    iMatch(~isDuplicateFrame(iOverlap)) = NaN;
+    
 end
 
 function data = fixOverlappingFrames(data, iOverlap, iMatch, mode)
